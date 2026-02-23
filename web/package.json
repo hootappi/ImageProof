@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build:wasm": "wasm-pack build ../crates/wasm-bindings --target web --out-dir ../../web/pkg",
+    "check": "npm run build:wasm && npm run build",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"

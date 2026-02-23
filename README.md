@@ -38,6 +38,13 @@ Set-Location web
 npm run build:wasm
 ```
 
+### Verify Web Build in One Command
+
+```powershell
+Set-Location web
+npm run check
+```
+
 ### VS Code Task
 
 Run task `cargo: check` from the Command Palette or Tasks runner.
@@ -69,6 +76,7 @@ Open: `http://127.0.0.1:4173/`
 ## Repository Operations
 
 - Build validation: `cargo check` or VS Code task `cargo: check`.
+- Web validation: `Set-Location web; npm run check`.
 - Launch validation: `cargo run -p imageproof-cli`.
 - Recommended workflow: keep changes incremental and update `.github/copilot-instructions.md` checklist as steps complete.
 

@@ -107,3 +107,7 @@ Starting workspace setup for ImageProof application.
 ### Web Run Trace Line (2026-02-23)
 - Added last-run timestamp and execution mode trace line at the top of web result output.
 - Preserved identical trace visibility for successful and error result paths.
+
+### Web One-Command Check (2026-02-23)
+- Added `npm run check` in `web/package.json` to run `build:wasm` followed by `build`.
+- Documented one-command web verification flow in README.
