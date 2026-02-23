@@ -103,3 +103,7 @@ Starting workspace setup for ImageProof application.
 ### Web Copy Result Control (2026-02-23)
 - Added `Copy Result` action in the web result panel.
 - Copied text includes summary and raw output, with inline success/failure status feedback.
+
+### Web Run Trace Line (2026-02-23)
+- Added last-run timestamp and execution mode trace line at the top of web result output.
+- Preserved identical trace visibility for successful and error result paths.

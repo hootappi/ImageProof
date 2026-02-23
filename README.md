@@ -64,7 +64,7 @@ Open: `http://127.0.0.1:4173/`
 - `imageproof-core` defines verification contracts and returns a minimal `Indeterminate` scaffold result in `Fast` mode; `Deep` mode remains `NotImplemented`.
 - `imageproof-wasm-bindings` exposes `verify_image` for browser/WASM integration.
 - `imageproof-cli` provides a runnable scaffold entrypoint for launch validation.
-- `web` provides an image upload UI and calls `verify_image`; users can choose `Fast` (structured scaffold result) or `Deep` (explicit scaffold-limitation hint for not-implemented mode), and can copy the result panel text for sharing/debugging.
+- `web` provides an image upload UI and calls `verify_image`; users can choose `Fast` (structured scaffold result) or `Deep` (explicit scaffold-limitation hint for not-implemented mode), copy the result panel text, and view a last-run timestamp/mode trace in the output.
 
 ## Repository Operations
 

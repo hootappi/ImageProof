@@ -26,6 +26,7 @@ function setCopyStatus(message) {
 }
 
 function formatVerificationResult(result, mode) {
+  const timestamp = new Date().toISOString();
   const classification = result?.classification ?? "Unknown";
   const scoreValue = Number(result?.authenticity_score);
   const score = Number.isFinite(scoreValue) ? scoreValue.toFixed(3) : "n/a";
@@ -48,6 +49,7 @@ function formatVerificationResult(result, mode) {
   ];
 
   const lines = [
+    `Last run: ${timestamp}`,
     `Execution mode: ${mode.toUpperCase()}`,
     `Classification: ${classification}`,
     `Authenticity score: ${score}`,
@@ -102,6 +104,7 @@ verifyBtn.addEventListener("click", async () => {
     const message = String(error);
     if (mode === "deep" && message.toLowerCase().includes("not implemented")) {
       resultEl.textContent = [
+        `Last run: ${new Date().toISOString()}`,
         "Execution mode: DEEP",
         "Status: expected scaffold limitation",
         "Deep mode is not implemented yet in the current engine scaffold.",
@@ -110,7 +113,11 @@ verifyBtn.addEventListener("click", async () => {
         `Raw error: ${message}`,
       ].join("\n");
     } else {
-      resultEl.textContent = `Verification error: ${message}`;
+      resultEl.textContent = [
+        `Last run: ${new Date().toISOString()}`,
+        `Execution mode: ${mode.toUpperCase()}`,
+        `Verification error: ${message}`,
+      ].join("\n");
     }
   } finally {
     verifyBtn.disabled = false;
