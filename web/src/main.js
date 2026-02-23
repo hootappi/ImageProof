@@ -73,15 +73,27 @@ verifyBtn.addEventListener("click", async () => {
 
   verifyBtn.disabled = true;
   resultEl.textContent = "Running verification...";
+  const mode = modeSelect?.value === "deep" ? "deep" : "fast";
 
   try {
     const bytes = new Uint8Array(await selectedFile.arrayBuffer());
-    const mode = modeSelect?.value === "deep" ? "deep" : "fast";
     const fastMode = mode === "fast";
     const response = verify_image(bytes, fastMode);
     resultEl.textContent = formatVerificationResult(response, mode);
   } catch (error) {
-    resultEl.textContent = `Verification error: ${String(error)}`;
+    const message = String(error);
+    if (mode === "deep" && message.toLowerCase().includes("not implemented")) {
+      resultEl.textContent = [
+        "Execution mode: DEEP",
+        "Status: expected scaffold limitation",
+        "Deep mode is not implemented yet in the current engine scaffold.",
+        "Switch to Fast mode to see the structured scaffold result.",
+        "",
+        `Raw error: ${message}`,
+      ].join("\n");
+    } else {
+      resultEl.textContent = `Verification error: ${message}`;
+    }
   } finally {
     verifyBtn.disabled = false;
   }

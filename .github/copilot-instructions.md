@@ -95,3 +95,7 @@ Starting workspace setup for ImageProof application.
 ### Web Mode Toggle (2026-02-23)
 - Added `Fast`/`Deep` execution mode selector in the web UI.
 - Wired mode selection to `verify_image` to validate both scaffold paths from browser flow.
+
+### Web Deep-Mode Hint (2026-02-23)
+- Added explicit Deep-mode scaffold message in the web result panel when `NotImplemented` is returned.
+- Preserved raw error text for debugging traceability.
