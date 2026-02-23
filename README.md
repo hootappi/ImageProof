@@ -61,10 +61,10 @@ Open: `http://127.0.0.1:4173/`
 
 ## Current Behavior
 
-- `imageproof-core` defines verification contracts and returns `NotImplemented` for engine execution.
+- `imageproof-core` defines verification contracts and returns a minimal `Indeterminate` scaffold result in `Fast` mode; `Deep` mode remains `NotImplemented`.
 - `imageproof-wasm-bindings` exposes `verify_image` for browser/WASM integration.
 - `imageproof-cli` provides a runnable scaffold entrypoint for launch validation.
-- `web` provides an image upload UI and calls `verify_image`; current engine response is expected to be `NotImplemented`.
+- `web` provides an image upload UI and calls `verify_image`; current fast-mode response is a structured scaffold JSON result.
 
 ## Repository Operations
 

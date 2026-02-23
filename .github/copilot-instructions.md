@@ -83,3 +83,7 @@ Starting workspace setup for ImageProof application.
 - Added `web` frontend scaffold (Vite) with local image upload flow.
 - Added npm script `build:wasm` to regenerate browser bindings from `crates/wasm-bindings`.
 - Verified web build and local dev-server launch path for the scaffold UI.
+
+### Fast-Mode Engine Stub (2026-02-23)
+- Updated `imageproof-core` verification engine to return a structured `Indeterminate` scaffold result in `Fast` mode.
+- Preserved `Deep` mode as `NotImplemented` to keep incremental implementation boundaries explicit.
