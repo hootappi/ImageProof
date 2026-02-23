@@ -6,6 +6,7 @@ Client-side visual authenticity verification engine scaffold.
 
 - `crates/core`: core verification domain types and engine contracts
 - `crates/wasm-bindings`: browser/WASM interface layer
+- `crates/cli`: runnable scaffold entrypoint
 
 ## VS Code Extensions
 
@@ -32,6 +33,12 @@ cargo check
 ### VS Code Task
 
 Run task `cargo: check` from the Command Palette or Tasks runner.
+
+### Launch (Scaffold)
+
+```powershell
+cargo run -p imageproof-cli
+```
 
 ## Customization Baseline
 

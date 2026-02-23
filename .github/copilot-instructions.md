@@ -7,7 +7,7 @@
 - [x] Install Required Extensions
 - [x] Compile the Project
 - [x] Create and Run Task
-- [ ] Launch the Project
+- [x] Launch the Project
 - [ ] Ensure Documentation is Complete
 
 ## Execution Progress
@@ -71,3 +71,4 @@ Starting workspace setup for ImageProof application.
 ### Development Tooling
 - Added workspace extension recommendations in `.vscode/extensions.json` for Rust and TOML development.
 - Added workspace task in `.vscode/tasks.json` for `cargo check` and executed it successfully.
+- Added runnable scaffold CLI target and launched project via `cargo run -p imageproof-cli`.
