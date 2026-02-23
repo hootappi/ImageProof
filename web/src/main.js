@@ -1,12 +1,13 @@
 import init, { verify_image } from "../pkg/imageproof_wasm_bindings.js";
 
 const fileInput = document.getElementById("fileInput");
+const modeSelect = document.getElementById("modeSelect");
 const verifyBtn = document.getElementById("verifyBtn");
 const resultEl = document.getElementById("result");
 
 let selectedFile = null;
 
-function formatVerificationResult(result) {
+function formatVerificationResult(result, mode) {
   const classification = result?.classification ?? "Unknown";
   const scoreValue = Number(result?.authenticity_score);
   const score = Number.isFinite(scoreValue) ? scoreValue.toFixed(3) : "n/a";
@@ -29,6 +30,7 @@ function formatVerificationResult(result) {
   ];
 
   const lines = [
+    `Execution mode: ${mode.toUpperCase()}`,
     `Classification: ${classification}`,
     `Authenticity score: ${score}`,
     `Reason codes: ${reasonCodes.length > 0 ? reasonCodes.join(", ") : "none"}`,
@@ -74,8 +76,10 @@ verifyBtn.addEventListener("click", async () => {
 
   try {
     const bytes = new Uint8Array(await selectedFile.arrayBuffer());
-    const response = verify_image(bytes, true);
-    resultEl.textContent = formatVerificationResult(response);
+    const mode = modeSelect?.value === "deep" ? "deep" : "fast";
+    const fastMode = mode === "fast";
+    const response = verify_image(bytes, fastMode);
+    resultEl.textContent = formatVerificationResult(response, mode);
   } catch (error) {
     resultEl.textContent = `Verification error: ${String(error)}`;
   } finally {

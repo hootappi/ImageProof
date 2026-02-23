@@ -91,3 +91,7 @@ Starting workspace setup for ImageProof application.
 ### Web Result Formatting (2026-02-23)
 - Updated `web/src/main.js` to render friendly verification summaries (classification, score, reason codes, latency).
 - Preserved raw JSON output beneath the summary for implementation traceability.
+
+### Web Mode Toggle (2026-02-23)
+- Added `Fast`/`Deep` execution mode selector in the web UI.
+- Wired mode selection to `verify_image` to validate both scaffold paths from browser flow.
