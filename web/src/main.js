@@ -2,9 +2,10 @@ import init, { verify_image } from "../pkg/imageproof_wasm_bindings.js";
 
 const fileInput = document.getElementById("fileInput");
 const dropZone = document.getElementById("dropZone");
-const previewWrap = document.getElementById("previewWrap");
+const dropPrompt = document.getElementById("dropPrompt");
 const previewImage = document.getElementById("previewImage");
 const verifyBtn = document.getElementById("verifyBtn");
+const clearBtn = document.getElementById("clearBtn");
 const confidenceValue = document.getElementById("confidenceValue");
 const justificationValue = document.getElementById("justificationValue");
 
@@ -30,15 +31,22 @@ function setSelectedFile(file) {
   }
 
   if (!selectedFile) {
-    previewWrap.classList.add("hidden");
+    dropZone.classList.remove("has-image");
+    dropPrompt.classList.remove("hidden");
+    clearBtn.classList.add("hidden");
     previewImage.removeAttribute("src");
+    previewImage.classList.add("hidden");
+    fileInput.value = "";
     enableVerifyIfReady();
     return;
   }
 
   previewUrl = URL.createObjectURL(selectedFile);
   previewImage.src = previewUrl;
-  previewWrap.classList.remove("hidden");
+  dropZone.classList.add("has-image");
+  dropPrompt.classList.add("hidden");
+  previewImage.classList.remove("hidden");
+  clearBtn.classList.remove("hidden");
   enableVerifyIfReady();
 }
 
@@ -124,6 +132,11 @@ dropZone?.addEventListener("drop", (event) => {
   if (file && file.type.startsWith("image/")) {
     setSelectedFile(file);
   }
+});
+
+clearBtn?.addEventListener("click", () => {
+  setSelectedFile(null);
+  setResult("—", "Load an image and verify to see a result.");
 });
 
 verifyBtn.addEventListener("click", async () => {

@@ -15,15 +15,17 @@
         <h2>Upload</h2>
         <input id="fileInput" class="hidden-input" type="file" accept="image/*" />
         <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="Upload image">
-          <p class="drop-title">Drag & drop image here</p>
-          <p class="drop-subtitle">or click to browse</p>
+          <div id="dropPrompt" class="drop-prompt">
+            <p class="drop-title">Drag & drop image here</p>
+            <p class="drop-subtitle">or click to browse</p>
+          </div>
+          <img id="previewImage" class="preview-image hidden" alt="Uploaded preview" />
         </div>
 
-        <div id="previewWrap" class="preview-wrap hidden" aria-live="polite">
-          <img id="previewImage" alt="Uploaded preview" />
+        <div class="action-row">
+          <button id="verifyBtn" class="verify-btn" disabled>Verify</button>
+          <button id="clearBtn" class="clear-btn hidden" type="button">Clear</button>
         </div>
-
-        <button id="verifyBtn" class="verify-btn" disabled>Verify</button>
       </section>
 
       <section class="card">

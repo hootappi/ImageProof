@@ -123,3 +123,7 @@ Starting workspace setup for ImageProof application.
 ### Modern Web UI Refresh (2026-02-23)
 - Refreshed web UI with dark-blue modern styling and simplified layout.
 - Replaced control set with drag-drop upload, in-page image preview, single verify action, and human-readable result fields (`Confidence`, `Justification`).
+
+### Upload Box Behavior Adjustment (2026-02-23)
+- Updated upload flow so selected image renders inside the drag-drop box and upload prompt is hidden while loaded.
+- Added `Clear` action to remove current image and reset upload state for another file.
