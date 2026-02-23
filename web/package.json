@@ -1,0 +1,15 @@
+{
+  "name": "imageproof-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "wasm-pack build ../crates/wasm-bindings --target web --out-dir ../../web/pkg",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^7.1.5"
+  }
+}

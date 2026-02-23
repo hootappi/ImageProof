@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ImageProof</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>ImageProof</h1>
+      <p class="subtitle">Local visual authenticity verification (WASM scaffold)</p>
+
+      <section class="card">
+        <label for="fileInput">Select image</label>
+        <input id="fileInput" type="file" accept="image/*" />
+        <button id="verifyBtn" disabled>Verify</button>
+      </section>
+
+      <section class="card">
+        <h2>Result</h2>
+        <pre id="result">No verification run yet.</pre>
+      </section>
+    </main>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

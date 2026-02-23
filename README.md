@@ -7,6 +7,7 @@ Client-side visual authenticity verification engine scaffold.
 - `crates/core`: core verification domain types and engine contracts
 - `crates/wasm-bindings`: browser/WASM interface layer
 - `crates/cli`: runnable scaffold entrypoint
+- `web`: minimal browser app shell that loads WASM bindings
 
 ## VS Code Extensions
 
@@ -30,6 +31,13 @@ Recommended extensions are defined in `.vscode/extensions.json`:
 cargo check
 ```
 
+### Build WASM for Browser
+
+```powershell
+Set-Location web
+npm run build:wasm
+```
+
 ### VS Code Task
 
 Run task `cargo: check` from the Command Palette or Tasks runner.
@@ -40,11 +48,23 @@ Run task `cargo: check` from the Command Palette or Tasks runner.
 cargo run -p imageproof-cli
 ```
 
+### Launch Web App (Local)
+
+```powershell
+Set-Location web
+npm install
+npm run build:wasm
+npm run dev -- --host 127.0.0.1 --port 4173
+```
+
+Open: `http://127.0.0.1:4173/`
+
 ## Current Behavior
 
 - `imageproof-core` defines verification contracts and returns `NotImplemented` for engine execution.
 - `imageproof-wasm-bindings` exposes `verify_image` for browser/WASM integration.
 - `imageproof-cli` provides a runnable scaffold entrypoint for launch validation.
+- `web` provides an image upload UI and calls `verify_image`; current engine response is expected to be `NotImplemented`.
 
 ## Repository Operations
 

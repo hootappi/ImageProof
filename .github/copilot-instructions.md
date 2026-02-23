@@ -76,3 +76,10 @@ Starting workspace setup for ImageProof application.
 ### Documentation Completion
 - README now documents workspace structure, prerequisites, compile/run commands, and current scaffold behavior.
 - Setup checklist is fully completed and synchronized with the repository state.
+
+## Post-Setup Incremental Work
+
+### Web App Shell (2026-02-23)
+- Added `web` frontend scaffold (Vite) with local image upload flow.
+- Added npm script `build:wasm` to regenerate browser bindings from `crates/wasm-bindings`.
+- Verified web build and local dev-server launch path for the scaffold UI.
