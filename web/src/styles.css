@@ -103,6 +103,10 @@ h2 {
   border-radius: 10px;
 }
 
+.preview-image.hidden {
+  display: none;
+}
+
 .action-row {
   margin-top: 0.9rem;
   display: grid;
