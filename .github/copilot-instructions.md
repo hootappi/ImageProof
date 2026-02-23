@@ -111,3 +111,7 @@ Starting workspace setup for ImageProof application.
 ### Web One-Command Check (2026-02-23)
 - Added `npm run check` in `web/package.json` to run `build:wasm` followed by `build`.
 - Documented one-command web verification flow in README.
+
+### One-Click Web Launcher (2026-02-23)
+- Added root `start-web.ps1` script to automate prerequisite checks/install and launch the web app.
+- Script runs `npm run check` before starting dev server to ensure current WASM and web build consistency.

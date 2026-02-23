@@ -20,6 +20,17 @@ Recommended extensions are defined in `.vscode/extensions.json`:
 
 ## Build
 
+### One-Click Start (Recommended)
+
+From project root:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\start-web.ps1
+```
+
+The script auto-checks/installs required tooling (Rust toolchain, C++ linker workload, wasm-pack), runs web verification build, and starts the dev server.
+
 ### Prerequisites (Windows)
 
 - Rust toolchain via `rustup`
