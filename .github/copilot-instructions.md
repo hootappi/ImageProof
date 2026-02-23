@@ -5,7 +5,7 @@
 - [x] Scaffold the Project
 - [x] Customize the Project
 - [x] Install Required Extensions
-- [ ] Compile the Project
+- [x] Compile the Project
 - [ ] Create and Run Task
 - [ ] Launch the Project
 - [ ] Ensure Documentation is Complete

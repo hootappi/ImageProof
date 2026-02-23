@@ -16,6 +16,19 @@ Recommended extensions are defined in `.vscode/extensions.json`:
 - `serayuzgur.crates`
 - `vadimcn.vscode-lldb`
 
+## Build
+
+### Prerequisites (Windows)
+
+- Rust toolchain via `rustup`
+- Visual Studio 2022 Build Tools with C++ workload (for `link.exe`)
+
+### Compile
+
+```powershell
+cargo check
+```
+
 ## Customization Baseline
 
 - Modular core contracts (`model` and `engine`) for maintainability and testability.
