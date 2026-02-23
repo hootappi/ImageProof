@@ -139,3 +139,7 @@ Starting workspace setup for ImageProof application.
 ### Signal Intelligence Layer v1 (2026-02-23)
 - Added residual-noise extraction and FFT-based spectral feature scoring in `imageproof-core` Deep analysis path.
 - Updated deep scoring to include spectral peak and high-frequency energy ratios for stronger synthetic/edited separation heuristics.
+
+### Physical Intelligence Layer v1 (2026-02-23)
+- Added PRNU plausibility proxy scoring from residual block-to-block correlation statistics.
+- Added cross-region consistency scoring to detect spatial instability in sensor-like residual patterns.

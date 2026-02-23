@@ -24,6 +24,8 @@ struct SignalMetrics {
     block_variance_cv: f32,
     spectral_peak_score: f32,
     high_freq_ratio_score: f32,
+    prnu_plausibility_score: f32,
+    cross_region_consistency: f32,
 }
 
 pub fn verify(request: VerifyRequest) -> Result<VerificationResult, VerifyError> {
@@ -50,37 +52,43 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
         + 0.20 * (1.0 - metrics.noise_score).max(0.0)
         + 0.12 * (1.0 - metrics.edge_score).max(0.0)
         + 0.25 * metrics.spectral_peak_score
-        + 0.15 * (1.0 - metrics.high_freq_ratio_score).max(0.0))
+        + 0.15 * (1.0 - metrics.high_freq_ratio_score).max(0.0)
+        + 0.12 * (1.0 - metrics.prnu_plausibility_score).max(0.0)
+        + 0.08 * (1.0 - metrics.cross_region_consistency).max(0.0))
         .clamp(0.0, 1.0);
 
     let edited_likelihood = (0.45 * metrics.block_variance_cv
         + 0.20 * metrics.edge_score
         + 0.20 * metrics.block_artifact_score * (1.0 - synthetic_likelihood)
-        + 0.15 * metrics.spectral_peak_score * 0.7)
+        + 0.15 * metrics.spectral_peak_score * 0.7
+        + 0.15 * (1.0 - metrics.cross_region_consistency).max(0.0)
+        + 0.05 * (1.0 - metrics.prnu_plausibility_score).max(0.0))
         .clamp(0.0, 1.0);
 
     let authentic_likelihood =
-        (1.0 - 0.75 * synthetic_likelihood - 0.65 * edited_likelihood).clamp(0.0, 1.0);
+        (1.0 - 0.72 * synthetic_likelihood - 0.60 * edited_likelihood).clamp(0.0, 1.0);
 
     let (classification, authenticity_score, reason_codes, layer_reasons) =
         if synthetic_likelihood > 0.58 && synthetic_likelihood > edited_likelihood + 0.08 {
             (
                 VerificationClass::Synthetic,
                 (1.0 - 0.9 * synthetic_likelihood).clamp(0.05, 0.40),
-                vec![ReasonCode::SemClass001, ReasonCode::SigFreq001],
+                vec![ReasonCode::SemClass001, ReasonCode::SigFreq001, ReasonCode::PhyPrnu001],
                 vec![
                     ("semantic".to_string(), vec![ReasonCode::SemClass001]),
                     ("signal".to_string(), vec![ReasonCode::SigFreq001]),
+                    ("physical".to_string(), vec![ReasonCode::PhyPrnu001]),
                 ],
             )
         } else if edited_likelihood > 0.52 {
             (
                 VerificationClass::Suspicious,
                 (0.35 + (1.0 - edited_likelihood) * 0.25).clamp(0.35, 0.60),
-                vec![ReasonCode::HybEla001, ReasonCode::SigFreq001],
+                vec![ReasonCode::HybEla001, ReasonCode::SigFreq001, ReasonCode::PhyPrnu001],
                 vec![
                     ("hybrid".to_string(), vec![ReasonCode::HybEla001]),
                     ("signal".to_string(), vec![ReasonCode::SigFreq001]),
+                    ("physical".to_string(), vec![ReasonCode::PhyPrnu001]),
                 ],
             )
         } else {
@@ -122,6 +130,8 @@ fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
             block_variance_cv: 0.0,
             spectral_peak_score: 0.0,
             high_freq_ratio_score: 0.0,
+            prnu_plausibility_score: 0.0,
+            cross_region_consistency: 0.0,
         };
     }
 
@@ -178,6 +188,8 @@ fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
     let residual_map = compute_residual_map(gray);
     let (spectral_peak_score, high_freq_ratio_score) =
         compute_fft_signal_features(&residual_map, width as usize, height as usize);
+    let (prnu_plausibility_score, cross_region_consistency) =
+        compute_prnu_proxy_metrics(&residual_map, width as usize, height as usize);
 
     SignalMetrics {
         noise_score,
@@ -186,7 +198,125 @@ fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
         block_variance_cv,
         spectral_peak_score,
         high_freq_ratio_score,
+        prnu_plausibility_score,
+        cross_region_consistency,
     }
+}
+
+fn compute_prnu_proxy_metrics(
+    residual_map: &[f32],
+    source_width: usize,
+    source_height: usize,
+) -> (f32, f32) {
+    let block = 24usize;
+    if source_width < block * 2 || source_height < block * 2 {
+        return (0.0, 0.0);
+    }
+
+    let blocks_x = source_width / block;
+    let blocks_y = source_height / block;
+    let mut correlations: Vec<f32> = Vec::new();
+
+    for by in 0..blocks_y {
+        for bx in 0..blocks_x {
+            if bx + 1 < blocks_x {
+                if let Some(corr) = block_corr(
+                    residual_map,
+                    source_width,
+                    bx * block,
+                    by * block,
+                    (bx + 1) * block,
+                    by * block,
+                    block,
+                ) {
+                    correlations.push(corr);
+                }
+            }
+
+            if by + 1 < blocks_y {
+                if let Some(corr) = block_corr(
+                    residual_map,
+                    source_width,
+                    bx * block,
+                    by * block,
+                    bx * block,
+                    (by + 1) * block,
+                    block,
+                ) {
+                    correlations.push(corr);
+                }
+            }
+        }
+    }
+
+    if correlations.is_empty() {
+        return (0.0, 0.0);
+    }
+
+    let n = correlations.len() as f32;
+    let mean_corr = correlations.iter().copied().sum::<f32>() / n;
+    let var_corr = correlations
+        .iter()
+        .map(|c| {
+            let d = *c - mean_corr;
+            d * d
+        })
+        .sum::<f32>()
+        / n;
+    let std_corr = var_corr.sqrt();
+
+    let plausibility = ((mean_corr + 0.02) / 0.15).clamp(0.0, 1.0);
+    let consistency = (1.0 - (std_corr / 0.20)).clamp(0.0, 1.0);
+
+    let pair_coverage = (n / 3500.0).clamp(0.25, 1.0);
+    (plausibility * pair_coverage, consistency * pair_coverage)
+}
+
+fn block_corr(
+    data: &[f32],
+    width: usize,
+    x0: usize,
+    y0: usize,
+    x1: usize,
+    y1: usize,
+    block: usize,
+) -> Option<f32> {
+    let mut sum_a = 0.0f32;
+    let mut sum_b = 0.0f32;
+    let n = (block * block) as f32;
+
+    for dy in 0..block {
+        for dx in 0..block {
+            let a = data[(y0 + dy) * width + (x0 + dx)];
+            let b = data[(y1 + dy) * width + (x1 + dx)];
+            sum_a += a;
+            sum_b += b;
+        }
+    }
+
+    let mean_a = sum_a / n;
+    let mean_b = sum_b / n;
+
+    let mut num = 0.0f32;
+    let mut den_a = 0.0f32;
+    let mut den_b = 0.0f32;
+
+    for dy in 0..block {
+        for dx in 0..block {
+            let a = data[(y0 + dy) * width + (x0 + dx)] - mean_a;
+            let b = data[(y1 + dy) * width + (x1 + dx)] - mean_b;
+            num += a * b;
+            den_a += a * a;
+            den_b += b * b;
+        }
+    }
+
+    let denom = (den_a * den_b).sqrt();
+    if denom <= f32::EPSILON {
+        return None;
+    }
+
+    Some((num / denom).clamp(-1.0, 1.0))
 }
 
 fn compute_residual_map(gray: &GrayImage) -> Vec<f32> {
