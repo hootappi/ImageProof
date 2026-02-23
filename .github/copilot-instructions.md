@@ -135,3 +135,7 @@ Starting workspace setup for ImageProof application.
 ### Deep Heuristic Verifier v0 (2026-02-23)
 - Replaced checksum placeholder with first measurable deep-analysis heuristic in `imageproof-core`.
 - Deep path now decodes image bytes and evaluates noise, edge, and block-artifact metrics to drive tri-state classification and confidence scaffolding.
+
+### Signal Intelligence Layer v1 (2026-02-23)
+- Added residual-noise extraction and FFT-based spectral feature scoring in `imageproof-core` Deep analysis path.
+- Updated deep scoring to include spectral peak and high-frequency energy ratios for stronger synthetic/edited separation heuristics.

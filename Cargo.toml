@@ -16,3 +16,4 @@ license = "UNLICENSED"
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+rustfft = "6"
