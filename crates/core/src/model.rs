@@ -41,12 +41,29 @@ pub struct LayerLatencyMs {
     pub fusion: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LayerContributionScores {
+    pub signal: f32,
+    pub physical: f32,
+    pub hybrid: f32,
+    pub semantic: f32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ThresholdProfile {
+    pub synthetic_min: f32,
+    pub synthetic_margin: f32,
+    pub suspicious_min: f32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationResult {
     pub authenticity_score: f32,
     pub classification: VerificationClass,
     pub reason_codes: Vec<ReasonCode>,
     pub layer_reasons: Vec<(String, Vec<ReasonCode>)>,
+    pub layer_contributions: LayerContributionScores,
+    pub threshold_profile: ThresholdProfile,
     pub latency_ms: LayerLatencyMs,
 }
 

@@ -87,7 +87,10 @@ Open: `http://127.0.0.1:4173/`
 
 ## Current Behavior
 
-- `imageproof-core` currently runs Deep heuristic verification with Signal Intelligence v1 (noise residual extraction + FFT spectral features + block/edge metrics) and Physical Intelligence v1 (PRNU plausibility proxy + cross-region consistency), returning one of three classifications: `Authentic`, `Suspicious` (edited), or `Synthetic`.
+- `imageproof-core` currently runs Deep heuristic verification with Signal Intelligence v1 (noise residual extraction + FFT spectral features + block/edge metrics), Physical Intelligence v1 (PRNU plausibility proxy + cross-region consistency), Hybrid Manipulation v1 (localized residual inconsistency + seam anomaly cues), and Semantic Intelligence v1 (residual repetition + gradient-entropy cues), returning one of three classifications: `Authentic`, `Suspicious` (edited), or `Synthetic`.
+- Deep verification output now includes explicit per-layer contribution scores (`signal`, `physical`, `hybrid`, `semantic`) and an embedded threshold profile (`synthetic_min`, `synthetic_margin`, `suspicious_min`) used by the current fusion gates.
+- Edited-path fusion is currently tuned conservatively (higher suspicious threshold + stronger consistency suppression) to reduce false-positive edited outcomes on authentic photos.
+- Synthetic-path fusion is tuned with stronger real-signal suppression (physical consistency and natural high-frequency texture) to reduce false-positive AI-generated outcomes on authentic camera photos.
 - `imageproof-wasm-bindings` exposes `verify_image` for browser/WASM integration.
 - `imageproof-cli` provides a runnable scaffold entrypoint for launch validation.
 - `web` provides a modern drag-drop upload flow with in-box image preview, `Verify` and `Clear` actions, and simple human-readable result output with three options: real, edited, or more likely AI generated (each with confidence).
@@ -108,3 +111,10 @@ Open: `http://127.0.0.1:4173/`
 ## Status
 
 Workspace setup checklist is complete and aligned to the current implementation baseline.
+
+## Open Items
+
+- Stress-test the Deep verification pipeline across authentic, edited, and synthetic image sets (including compression/resizing variants).
+- Define acceptance quality bar for release readiness (target FP/FN bounds, minimum sample sizes, pass/fail criteria).
+- Prepare Vercel deployment path for the `web` app to collect real-user feedback.
+- Define lightweight feedback collection loop (structured form/issues + triage cadence for threshold tuning).

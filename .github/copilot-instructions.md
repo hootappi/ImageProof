@@ -143,3 +143,34 @@ Starting workspace setup for ImageProof application.
 ### Physical Intelligence Layer v1 (2026-02-23)
 - Added PRNU plausibility proxy scoring from residual block-to-block correlation statistics.
 - Added cross-region consistency scoring to detect spatial instability in sensor-like residual patterns.
+
+### Hybrid Manipulation Layer v1 (2026-02-23)
+- Added localized residual inconsistency scoring across neighboring image tiles.
+- Added seam anomaly scoring from residual discontinuity excess across candidate splice boundaries.
+- Updated Deep-layer fusion weights to incorporate hybrid cues for stronger edited-image separation.
+
+### Semantic Intelligence Layer v1 (2026-02-23)
+- Added residual-pattern repetition scoring from shifted residual autocorrelation cues.
+- Added gradient-orientation entropy scoring to capture collapsed structural diversity patterns.
+- Added semantic synthetic-cue fusion in Deep scoring and conditional semantic reason routing for suspicious outcomes.
+
+### Fusion Calibration Scaffold v1 (2026-02-23)
+- Added explicit per-layer contribution outputs (`signal`, `physical`, `hybrid`, `semantic`) to verification results.
+- Added threshold profile outputs (`synthetic_min`, `synthetic_margin`, `suspicious_min`) aligned with current decision gates.
+- Refactored Deep classification thresholds to named constants for stable calibration tuning entry points.
+
+### False-Positive Reduction Tuning v1 (2026-02-23)
+- Raised suspicious-classification gate to require stronger edited evidence before labeling authentic photos as edited.
+- Rebalanced edited-likelihood fusion weights to reduce over-reliance on global variance/edge cues.
+- Added physical-consistency suppression and reduced hybrid cue aggressiveness for better authentic-image tolerance.
+
+### False-Positive Reduction Tuning v2 (2026-02-23)
+- Raised synthetic-classification thresholds and margin to require stronger evidence before labeling AI-generated.
+- Reduced semantic synthetic-cue aggressiveness and lowered hybrid influence in synthetic fusion.
+- Added explicit synthetic suppression based on strong physical consistency and natural high-frequency texture cues.
+
+## Open Items (Pending)
+- Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
+- Define acceptance quality bar before public feedback phase.
+- Prepare Vercel deployment path for browser/WASM app delivery.
+- Plan user feedback collection and triage loop for calibration iterations.
