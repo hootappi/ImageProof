@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "cargo: check",
+			"type": "shell",
+			"command": "${env:USERPROFILE}\\.cargo\\bin\\cargo.exe",
+			"args": [
+				"check"
+			],
+			"isBackground": false
+		}
+	]
+}

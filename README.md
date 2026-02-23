@@ -29,6 +29,10 @@ Recommended extensions are defined in `.vscode/extensions.json`:
 cargo check
 ```
 
+### VS Code Task
+
+Run task `cargo: check` from the Command Palette or Tasks runner.
+
 ## Customization Baseline
 
 - Modular core contracts (`model` and `engine`) for maintainability and testability.
