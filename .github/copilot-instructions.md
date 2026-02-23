@@ -99,3 +99,7 @@ Starting workspace setup for ImageProof application.
 ### Web Deep-Mode Hint (2026-02-23)
 - Added explicit Deep-mode scaffold message in the web result panel when `NotImplemented` is returned.
 - Preserved raw error text for debugging traceability.
+
+### Web Copy Result Control (2026-02-23)
+- Added `Copy Result` action in the web result panel.
+- Copied text includes summary and raw output, with inline success/failure status feedback.

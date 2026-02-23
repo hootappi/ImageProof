@@ -27,6 +27,28 @@ body {
   margin-bottom: 1rem;
 }
 
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.result-header h2 {
+  margin: 0;
+}
+
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.copy-status {
+  font-size: 0.875rem;
+  color: #4b5563;
+}
+
 label {
   display: block;
   margin-bottom: 0.5rem;

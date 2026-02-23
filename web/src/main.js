@@ -3,9 +3,27 @@ import init, { verify_image } from "../pkg/imageproof_wasm_bindings.js";
 const fileInput = document.getElementById("fileInput");
 const modeSelect = document.getElementById("modeSelect");
 const verifyBtn = document.getElementById("verifyBtn");
+const copyBtn = document.getElementById("copyBtn");
+const copyStatus = document.getElementById("copyStatus");
 const resultEl = document.getElementById("result");
 
 let selectedFile = null;
+let copyStatusTimeoutId;
+
+function setCopyStatus(message) {
+  if (!copyStatus) {
+    return;
+  }
+
+  copyStatus.textContent = message;
+  if (copyStatusTimeoutId) {
+    clearTimeout(copyStatusTimeoutId);
+  }
+
+  copyStatusTimeoutId = setTimeout(() => {
+    copyStatus.textContent = "";
+  }, 1800);
+}
 
 function formatVerificationResult(result, mode) {
   const classification = result?.classification ?? "Unknown";
@@ -100,3 +118,18 @@ verifyBtn.addEventListener("click", async () => {
 });
 
 bootstrap();
+
+copyBtn?.addEventListener("click", async () => {
+  const text = resultEl?.textContent ?? "";
+  if (!text.trim()) {
+    setCopyStatus("Nothing to copy");
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    setCopyStatus("Copied");
+  } catch (_error) {
+    setCopyStatus("Copy failed");
+  }
+});
