@@ -127,3 +127,7 @@ Starting workspace setup for ImageProof application.
 ### Upload Box Behavior Adjustment (2026-02-23)
 - Updated upload flow so selected image renders inside the drag-drop box and upload prompt is hidden while loaded.
 - Added `Clear` action to remove current image and reset upload state for another file.
+
+### Deep-Only Tri-State Result Flow (2026-02-23)
+- Updated verify action to run Deep analysis path only in web flow.
+- Result panel now maps output to three human-readable outcomes: real, edited, or more likely AI generated, each with confidence.
