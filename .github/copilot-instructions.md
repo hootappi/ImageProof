@@ -87,3 +87,7 @@ Starting workspace setup for ImageProof application.
 ### Fast-Mode Engine Stub (2026-02-23)
 - Updated `imageproof-core` verification engine to return a structured `Indeterminate` scaffold result in `Fast` mode.
 - Preserved `Deep` mode as `NotImplemented` to keep incremental implementation boundaries explicit.
+
+### Web Result Formatting (2026-02-23)
+- Updated `web/src/main.js` to render friendly verification summaries (classification, score, reason codes, latency).
+- Preserved raw JSON output beneath the summary for implementation traceability.
