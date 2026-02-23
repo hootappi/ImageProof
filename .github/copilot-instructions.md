@@ -3,7 +3,7 @@
 - [x] Verify that the copilot-instructions.md file in the .github directory is created.
 - [x] Clarify Project Requirements
 - [x] Scaffold the Project
-- [ ] Customize the Project
+- [x] Customize the Project
 - [ ] Install Required Extensions
 - [ ] Compile the Project
 - [ ] Create and Run Task
@@ -55,3 +55,15 @@ Starting workspace setup for ImageProof application.
 - Calibrate for <=1% false positives on authentic images.
 - Calibrate for <=10% false negatives on synthetic/hybrid images.
 - Document dataset strategy, threshold tuning method, and measurement methodology.
+
+## Project Customization (Baseline v0.1 - 2026-02-23)
+
+### Engineering Structure
+- Core domain contracts are split into dedicated modules for model and engine concerns.
+- Shared enums now define execution mode, hardware tier, and structured reason codes.
+- Verification result schema includes per-layer latency and layer reason grouping.
+
+### Project Conventions
+- Added repository editor conventions via `.editorconfig`.
+- Maintained small, focused workspace with Rust core and WASM bindings crates only.
+- Preserved not-implemented verification engine boundary to keep incremental delivery traceable.

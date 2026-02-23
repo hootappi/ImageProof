@@ -1,11 +1,18 @@
-use imageproof_core::{verify, VerifyError, VerifyRequest};
+use imageproof_core::{
+    verify, ExecutionMode, HardwareTier, VerifyError, VerifyRequest,
+};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub fn verify_image(image_bytes: &[u8], fast_mode: bool) -> Result<JsValue, JsValue> {
     let request = VerifyRequest {
         image_bytes: image_bytes.to_vec(),
-        fast_mode,
+        execution_mode: if fast_mode {
+            ExecutionMode::Fast
+        } else {
+            ExecutionMode::Deep
+        },
+        hardware_tier: HardwareTier::CpuOnly,
     };
 
     match verify(request) {
