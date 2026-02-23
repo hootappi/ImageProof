@@ -131,3 +131,7 @@ Starting workspace setup for ImageProof application.
 ### Deep-Only Tri-State Result Flow (2026-02-23)
 - Updated verify action to run Deep analysis path only in web flow.
 - Result panel now maps output to three human-readable outcomes: real, edited, or more likely AI generated, each with confidence.
+
+### Deep Heuristic Verifier v0 (2026-02-23)
+- Replaced checksum placeholder with first measurable deep-analysis heuristic in `imageproof-core`.
+- Deep path now decodes image bytes and evaluates noise, edge, and block-artifact metrics to drive tri-state classification and confidence scaffolding.

@@ -87,7 +87,7 @@ Open: `http://127.0.0.1:4173/`
 
 ## Current Behavior
 
-- `imageproof-core` currently exposes Deep analysis as the active verification path and returns one of three scaffold classifications: `Authentic`, `Suspicious` (edited), or `Synthetic`.
+- `imageproof-core` currently runs a first-pass Deep heuristic verifier (image decode + noise/edge/block artifact metrics) and returns one of three classifications: `Authentic`, `Suspicious` (edited), or `Synthetic`.
 - `imageproof-wasm-bindings` exposes `verify_image` for browser/WASM integration.
 - `imageproof-cli` provides a runnable scaffold entrypoint for launch validation.
 - `web` provides a modern drag-drop upload flow with in-box image preview, `Verify` and `Clear` actions, and simple human-readable result output with three options: real, edited, or more likely AI generated (each with confidence).
