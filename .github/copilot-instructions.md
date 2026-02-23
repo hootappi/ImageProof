@@ -4,7 +4,7 @@
 - [x] Clarify Project Requirements
 - [x] Scaffold the Project
 - [x] Customize the Project
-- [ ] Install Required Extensions
+- [x] Install Required Extensions
 - [ ] Compile the Project
 - [ ] Create and Run Task
 - [ ] Launch the Project
@@ -67,3 +67,6 @@ Starting workspace setup for ImageProof application.
 - Added repository editor conventions via `.editorconfig`.
 - Maintained small, focused workspace with Rust core and WASM bindings crates only.
 - Preserved not-implemented verification engine boundary to keep incremental delivery traceable.
+
+### Development Tooling
+- Added workspace extension recommendations in `.vscode/extensions.json` for Rust and TOML development.

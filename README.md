@@ -7,6 +7,15 @@ Client-side visual authenticity verification engine scaffold.
 - `crates/core`: core verification domain types and engine contracts
 - `crates/wasm-bindings`: browser/WASM interface layer
 
+## VS Code Extensions
+
+Recommended extensions are defined in `.vscode/extensions.json`:
+
+- `rust-lang.rust-analyzer`
+- `tamasfe.even-better-toml`
+- `serayuzgur.crates`
+- `vadimcn.vscode-lldb`
+
 ## Customization Baseline
 
 - Modular core contracts (`model` and `engine`) for maintainability and testability.
