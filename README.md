@@ -24,6 +24,14 @@ Recommended extensions are defined in `.vscode/extensions.json`:
 
 From project root:
 
+Double-click:
+
+```bat
+start-web.cmd
+```
+
+or run in PowerShell:
+
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\start-web.ps1

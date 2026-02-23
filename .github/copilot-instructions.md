@@ -115,3 +115,7 @@ Starting workspace setup for ImageProof application.
 ### One-Click Web Launcher (2026-02-23)
 - Added root `start-web.ps1` script to automate prerequisite checks/install and launch the web app.
 - Script runs `npm run check` before starting dev server to ensure current WASM and web build consistency.
+
+### Double-Click Launcher Wrapper (2026-02-23)
+- Added root `start-web.cmd` wrapper so web app startup can be launched without manual PowerShell setup.
+- Wrapper runs `start-web.ps1` with execution-policy bypass and keeps error output visible on failure.
