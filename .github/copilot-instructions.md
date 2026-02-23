@@ -119,3 +119,7 @@ Starting workspace setup for ImageProof application.
 ### Double-Click Launcher Wrapper (2026-02-23)
 - Added root `start-web.cmd` wrapper so web app startup can be launched without manual PowerShell setup.
 - Wrapper runs `start-web.ps1` with execution-policy bypass and keeps error output visible on failure.
+
+### Modern Web UI Refresh (2026-02-23)
+- Refreshed web UI with dark-blue modern styling and simplified layout.
+- Replaced control set with drag-drop upload, in-page image preview, single verify action, and human-readable result fields (`Confidence`, `Justification`).

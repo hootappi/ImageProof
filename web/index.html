@@ -9,28 +9,35 @@
   <body>
     <main class="container">
       <h1>ImageProof</h1>
-      <p class="subtitle">Local visual authenticity verification (WASM scaffold)</p>
+      <p class="subtitle">Local visual authenticity verification</p>
 
       <section class="card">
-        <label for="fileInput">Select image</label>
-        <input id="fileInput" type="file" accept="image/*" />
-        <label for="modeSelect">Execution mode</label>
-        <select id="modeSelect">
-          <option value="fast" selected>Fast</option>
-          <option value="deep">Deep</option>
-        </select>
-        <button id="verifyBtn" disabled>Verify</button>
+        <h2>Upload</h2>
+        <input id="fileInput" class="hidden-input" type="file" accept="image/*" />
+        <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="Upload image">
+          <p class="drop-title">Drag & drop image here</p>
+          <p class="drop-subtitle">or click to browse</p>
+        </div>
+
+        <div id="previewWrap" class="preview-wrap hidden" aria-live="polite">
+          <img id="previewImage" alt="Uploaded preview" />
+        </div>
+
+        <button id="verifyBtn" class="verify-btn" disabled>Verify</button>
       </section>
 
       <section class="card">
-        <div class="result-header">
-          <h2>Result</h2>
-          <div class="result-actions">
-            <button id="copyBtn" type="button">Copy Result</button>
-            <span id="copyStatus" class="copy-status"></span>
+        <h2>Result</h2>
+        <div class="result-grid">
+          <div class="result-item">
+            <div class="result-label">Confidence</div>
+            <div id="confidenceValue" class="result-value">—</div>
+          </div>
+          <div class="result-item">
+            <div class="result-label">Justification</div>
+            <div id="justificationValue" class="result-value">Load an image and verify to see a result.</div>
           </div>
         </div>
-        <pre id="result">No verification run yet.</pre>
       </section>
     </main>
 
