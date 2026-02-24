@@ -224,6 +224,12 @@ Starting workspace setup for ImageProof application.
 - Threaded `is_jpeg: bool` through `compute_pixel_statistics` and `compute_signal_metrics_timed`.
 - Added `make_jpeg` test helper and 3 H2 unit tests (PNG zero, JPEG non-negative, flag unit test).
 
+### Residual Border Exclusion — H4 (2026-02-24)
+- `compute_residual_map` now returns `(Vec<f32>, usize, usize)` — interior-only buffer excluding zero-padded border rows/cols.
+- All downstream consumers (FFT, PRNU, hybrid, semantic) receive interior dimensions, eliminating border zero contamination.
+- Semantic gradient entropy decoupled to use `gray.width()`/`gray.height()` directly instead of residual dimensions.
+- Updated 4 existing residual map tests; added 3 new H4 tests (manual value verification, FFT downstream clean, 3×3 edge case).
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.

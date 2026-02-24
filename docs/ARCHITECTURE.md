@@ -105,7 +105,7 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
     │
     ├──► compute_signal_metrics(gray)
     │       ├── noise/edge/block (pixel iteration)
-    │       ├── compute_residual_map (2nd pixel iteration)  ← KNOWN ISSUE M4: duplicated work
+    │       ├── compute_residual_map → interior-only (H4: no border zeros)
     │       ├── compute_fft_signal_features (64×64 cap)     ← KNOWN ISSUE H3
     │       ├── compute_prnu_proxy_metrics (block correlation)
     │       ├── compute_hybrid_metrics (tile energy + seam scan)
@@ -171,6 +171,6 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | C3 | Indeterminate classification dead code | **RESOLVED** — quad-state classification with Indeterminate branch |
 | C4 | Zero automated tests | **RESOLVED** — 78 tests + CI pipeline |
 | C5 | Unbounded memory from large images | **RESOLVED** — 50 MB file + 16384 dimension limits |
-| H1–H8 | Various high-priority issues | H2 **RESOLVED** (JPEG format gating), H7 **RESOLVED** (panic hook); remainder unmitigated — see EXECUTION_PLAN.md |
+| H1–H8 | Various high-priority issues | H2 **RESOLVED** (JPEG format gating), H4 **RESOLVED** (residual border exclusion), H7 **RESOLVED** (panic hook); remainder unmitigated — see EXECUTION_PLAN.md |
 
 All risk IDs reference the code review findings. See `docs/EXECUTION_PLAN.md` for remediation plan and sequencing.

@@ -14,6 +14,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **C3**: Added Indeterminate classification branch — when both `synthetic_likelihood` and `edited_likelihood` fall below `INDETERMINATE_CEILING` (0.30) with spread below `INDETERMINATE_MIN_SPREAD` (0.08), the engine now emits `Indeterminate` (score 0.50, reason `SysInsuff001`) instead of defaulting to Authentic. Added `make_xorshift_png` test helper and 6 C3 tests. Updated ARCHITECTURE.md to quad-state classification.
 - **C2**: Replaced fabricated pixel-count-based latency formula with real `Instant::now()` per-layer wall-clock timing. Extracted `compute_pixel_statistics` and `compute_signal_metrics_timed` functions. Moved `compute_signal_metrics` to `#[cfg(test)]`. Updated latency test to validate real measurement properties.
 - **H2**: Added JPEG format detection in decode path. Block artifact scoring (`block_artifact_score`) is now forced to 0.0 for non-JPEG inputs. Added `make_jpeg` test helper and 3 H2 unit tests.
+- **H4**: `compute_residual_map` now returns interior-only buffer `(width-2) × (height-2)` excluding zero-padded border rows/cols. All downstream consumers (FFT, PRNU, hybrid, semantic) receive clean residuals. Gradient entropy in semantic layer decoupled to use `gray.width()`/`gray.height()` directly. Updated 4 existing tests, added 3 new H4 tests.
 
 ### Planned
 

@@ -278,27 +278,27 @@ fn compute_signal_metrics_timed(gray: &GrayImage, is_jpeg: bool) -> TimedMetrics
     let t_signal = Instant::now();
     let (noise_score, edge_score, block_artifact_score, block_variance_cv) =
         compute_pixel_statistics(gray, is_jpeg);
-    let residual_map = compute_residual_map(gray);
+    let (residual_map, res_w, res_h) = compute_residual_map(gray);
     let (spectral_peak_score, high_freq_ratio_score) =
-        compute_fft_signal_features(&residual_map, width as usize, height as usize);
+        compute_fft_signal_features(&residual_map, res_w, res_h);
     let signal_ms = t_signal.elapsed().as_millis() as u32;
 
     // --- Physical layer: PRNU proxy ---
     let t_physical = Instant::now();
     let (prnu_plausibility_score, cross_region_consistency) =
-        compute_prnu_proxy_metrics(&residual_map, width as usize, height as usize);
+        compute_prnu_proxy_metrics(&residual_map, res_w, res_h);
     let physical_ms = t_physical.elapsed().as_millis() as u32;
 
     // --- Hybrid layer: local inconsistency + seam ---
     let t_hybrid = Instant::now();
     let (hybrid_local_inconsistency, hybrid_seam_anomaly) =
-        compute_hybrid_metrics(&residual_map, width as usize, height as usize);
+        compute_hybrid_metrics(&residual_map, res_w, res_h);
     let hybrid_ms = t_hybrid.elapsed().as_millis() as u32;
 
     // --- Semantic layer: repetition + gradient entropy ---
     let t_semantic = Instant::now();
     let (semantic_pattern_repetition, semantic_gradient_entropy, semantic_synthetic_cue) =
-        compute_semantic_metrics(&residual_map, gray, width as usize, height as usize);
+        compute_semantic_metrics(&residual_map, gray, res_w, res_h);
     let semantic_ms = t_semantic.elapsed().as_millis() as u32;
 
     TimedMetrics {
@@ -424,15 +424,15 @@ fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
 
     let (noise_score, edge_score, block_artifact_score, block_variance_cv) =
         compute_pixel_statistics(gray, true); // tests assume JPEG for backward compat
-    let residual_map = compute_residual_map(gray);
+    let (residual_map, res_w, res_h) = compute_residual_map(gray);
     let (spectral_peak_score, high_freq_ratio_score) =
-        compute_fft_signal_features(&residual_map, width as usize, height as usize);
+        compute_fft_signal_features(&residual_map, res_w, res_h);
     let (prnu_plausibility_score, cross_region_consistency) =
-        compute_prnu_proxy_metrics(&residual_map, width as usize, height as usize);
+        compute_prnu_proxy_metrics(&residual_map, res_w, res_h);
     let (hybrid_local_inconsistency, hybrid_seam_anomaly) =
-        compute_hybrid_metrics(&residual_map, width as usize, height as usize);
+        compute_hybrid_metrics(&residual_map, res_w, res_h);
     let (semantic_pattern_repetition, semantic_gradient_entropy, semantic_synthetic_cue) =
-        compute_semantic_metrics(&residual_map, gray, width as usize, height as usize);
+        compute_semantic_metrics(&residual_map, gray, res_w, res_h);
 
     SignalMetrics {
         noise_score,
@@ -507,8 +507,12 @@ fn compute_semantic_metrics(
     let mut hist = vec![0.0f32; bins];
     let mut grad_sum = 0.0f32;
 
-    for y in 1..(source_height - 1) {
-        for x in 1..(source_width - 1) {
+    // H4: gradient orientation uses the original gray image dimensions,
+    // independent of the cropped residual dimensions.
+    let gray_w = gray.width() as usize;
+    let gray_h = gray.height() as usize;
+    for y in 1..(gray_h - 1) {
+        for x in 1..(gray_w - 1) {
             let left = gray.get_pixel((x - 1) as u32, y as u32)[0] as f32;
             let right = gray.get_pixel((x + 1) as u32, y as u32)[0] as f32;
             let up = gray.get_pixel(x as u32, (y - 1) as u32)[0] as f32;
@@ -839,14 +843,21 @@ fn block_corr(
     Some((num / denom).clamp(-1.0, 1.0))
 }
 
-fn compute_residual_map(gray: &GrayImage) -> Vec<f32> {
+/// Returns `(interior_residual, interior_width, interior_height)`.
+/// H4: border rows/cols are excluded; the returned buffer contains only
+/// pixels in the `1..(height-1)`, `1..(width-1)` interior range so no
+/// zero-padded border values contaminate downstream metrics.
+fn compute_residual_map(gray: &GrayImage) -> (Vec<f32>, usize, usize) {
     let width = gray.width();
     let height = gray.height();
-    let mut residual = vec![0.0f32; (width * height) as usize];
 
     if width < 3 || height < 3 {
-        return residual;
+        return (Vec::new(), 0, 0);
     }
+
+    let inner_w = (width - 2) as usize;
+    let inner_h = (height - 2) as usize;
+    let mut residual = vec![0.0f32; inner_w * inner_h];
 
     for y in 1..(height - 1) {
         for x in 1..(width - 1) {
@@ -856,11 +867,13 @@ fn compute_residual_map(gray: &GrayImage) -> Vec<f32> {
             let up = gray.get_pixel(x, y - 1)[0] as f32;
             let down = gray.get_pixel(x, y + 1)[0] as f32;
             let local_mean = (left + right + up + down) * 0.25;
-            residual[(y * width + x) as usize] = center - local_mean;
+            let iy = (y - 1) as usize;
+            let ix = (x - 1) as usize;
+            residual[iy * inner_w + ix] = center - local_mean;
         }
     }
 
-    residual
+    (residual, inner_w, inner_h)
 }
 
 fn compute_fft_signal_features(
@@ -1391,47 +1404,94 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn residual_map_tiny_image_returns_zeros() {
+    fn residual_map_tiny_image_returns_empty() {
         let gray = GrayImage::from_pixel(2, 2, Luma([100]));
-        let residual = compute_residual_map(&gray);
-        assert_eq!(residual.len(), 4);
-        assert!(residual.iter().all(|v| *v == 0.0));
+        let (residual, w, h) = compute_residual_map(&gray);
+        assert!(residual.is_empty());
+        assert_eq!(w, 0);
+        assert_eq!(h, 0);
     }
 
     #[test]
     fn residual_map_flat_image_interior_is_zero() {
         let gray = GrayImage::from_pixel(8, 8, Luma([100]));
-        let residual = compute_residual_map(&gray);
-        // Interior pixels (not border) should be zero for flat image
-        for y in 1..7 {
-            for x in 1..7 {
-                assert_eq!(residual[y * 8 + x], 0.0, "residual at ({x},{y}) should be 0");
-            }
-        }
+        let (residual, w, h) = compute_residual_map(&gray);
+        assert_eq!(w, 6);
+        assert_eq!(h, 6);
+        // All interior residuals should be zero for a flat image
+        assert!(residual.iter().all(|v| *v == 0.0));
     }
 
     #[test]
-    fn residual_map_borders_are_zero() {
+    fn residual_map_no_border_zeros_in_output() {
+        // H4: the returned buffer must contain NO border zeros.
+        // Use a non-linear pattern so residuals are non-zero.
         let gray = ImageBuffer::from_fn(8, 8, |x, y| {
-            Luma([((x + y * 3) % 256) as u8])
+            Luma([((x * x + y * y * 3) % 256) as u8])
         });
-        let residual = compute_residual_map(&gray);
-        // Top row, bottom row, left col, right col should all be 0
-        for x in 0..8 {
-            assert_eq!(residual[x], 0.0, "top border at x={x}");
-            assert_eq!(residual[7 * 8 + x], 0.0, "bottom border at x={x}");
-        }
-        for y in 0..8 {
-            assert_eq!(residual[y * 8], 0.0, "left border at y={y}");
-            assert_eq!(residual[y * 8 + 7], 0.0, "right border at y={y}");
-        }
+        let (residual, w, h) = compute_residual_map(&gray);
+        assert_eq!(w, 6);
+        assert_eq!(h, 6);
+        assert_eq!(residual.len(), 36);
+        // At least some interior residuals are non-zero for a gradient image
+        assert!(residual.iter().any(|v| *v != 0.0));
     }
 
     #[test]
-    fn residual_map_length_matches_image_dimensions() {
+    fn residual_map_length_matches_interior_dimensions() {
         let gray = GrayImage::from_pixel(16, 24, Luma([50]));
-        let residual = compute_residual_map(&gray);
-        assert_eq!(residual.len(), 16 * 24);
+        let (residual, w, h) = compute_residual_map(&gray);
+        assert_eq!(w, 14);
+        assert_eq!(h, 22);
+        assert_eq!(residual.len(), 14 * 22);
+    }
+
+    // H4 – border exclusion correctness
+    #[test]
+    fn h4_residual_interior_values_match_manual_computation() {
+        // Verify that cropped residual[0][0] equals the value at original (1,1)
+        let gray = ImageBuffer::from_fn(5, 5, |x, y| {
+            Luma([((x * 10 + y * 7) % 256) as u8])
+        });
+        let (residual, w, h) = compute_residual_map(&gray);
+        assert_eq!(w, 3);
+        assert_eq!(h, 3);
+        // Manual: center(1,1)=17, left(0,1)=7, right(2,1)=27, up(1,0)=10, down(1,2)=24
+        let center = gray.get_pixel(1, 1)[0] as f32;
+        let left = gray.get_pixel(0, 1)[0] as f32;
+        let right = gray.get_pixel(2, 1)[0] as f32;
+        let up = gray.get_pixel(1, 0)[0] as f32;
+        let down = gray.get_pixel(1, 2)[0] as f32;
+        let expected = center - (left + right + up + down) * 0.25;
+        assert!((residual[0] - expected).abs() < 1e-6, "residual[0]={} expected={}", residual[0], expected);
+    }
+
+    #[test]
+    fn h4_downstream_fft_receives_no_border_zeros() {
+        // An 18×18 image produces a 16×16 interior residual which just
+        // passes the FFT min-dim guard.  Before H4 the border zeros would
+        // have been sampled; after H4 only real residuals are present.
+        let gray = ImageBuffer::from_fn(18, 18, |x, y| {
+            Luma([((x.wrapping_mul(37) ^ y.wrapping_mul(53)) % 256) as u8])
+        });
+        let (residual, res_w, res_h) = compute_residual_map(&gray);
+        assert_eq!(res_w, 16);
+        assert_eq!(res_h, 16);
+        let (peak, hf) = compute_fft_signal_features(&residual, res_w, res_h);
+        // Should produce valid bounded values from real residuals
+        assert!((0.0..=1.0).contains(&peak), "peak={peak}");
+        assert!((0.0..=1.0).contains(&hf), "hf={hf}");
+    }
+
+    #[test]
+    fn h4_3x3_image_returns_1x1_interior() {
+        let gray = ImageBuffer::from_fn(3, 3, |x, y| {
+            Luma([((x + y) * 40) as u8])
+        });
+        let (residual, w, h) = compute_residual_map(&gray);
+        assert_eq!(w, 1);
+        assert_eq!(h, 1);
+        assert_eq!(residual.len(), 1);
     }
 
     // ---------------------------------------------------------------
@@ -1521,8 +1581,8 @@ mod tests {
         let gray = ImageBuffer::from_fn(w, h, |x, y| {
             Luma([((x + y * 2) % 256) as u8])
         });
-        let residual = compute_residual_map(&gray);
-        let (rep, ent, cue) = compute_semantic_metrics(&residual, &gray, w as usize, h as usize);
+        let (residual, res_w, res_h) = compute_residual_map(&gray);
+        let (rep, ent, cue) = compute_semantic_metrics(&residual, &gray, res_w, res_h);
         assert!((0.0..=1.0).contains(&rep));
         assert!((0.0..=1.0).contains(&ent));
         assert!((0.0..=1.0).contains(&cue));
