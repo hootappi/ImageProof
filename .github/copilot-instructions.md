@@ -212,6 +212,12 @@ Starting workspace setup for ImageProof application.
 - Added 6 C3 unit tests: 3 constant-consistency checks, 1 integration (xorshift noise → Indeterminate), 1 score (0.50), 1 reason code (SysInsuff001).
 - Updated ARCHITECTURE.md: tri-state → quad-state, resolved markers for C1/C3/C4/C5/H7.
 
+### Real Per-Layer Latency — C2 (2026-02-24)
+- Replaced fabricated pixel-count-based latency formula with real `Instant::now()` per-layer wall-clock timing.
+- Extracted `compute_pixel_statistics` (pixel-level noise/edge/block-artifact/CV) and `compute_signal_metrics_timed` (per-layer timing wrapper) from monolithic `compute_signal_metrics`.
+- Moved `compute_signal_metrics` to `#[cfg(test)]` (only tests use the untimed variant now).
+- Updated latency test: validates total < 30s and fusion ≤ signal (real measurement properties).
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.

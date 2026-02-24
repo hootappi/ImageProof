@@ -12,6 +12,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **C5**: Added input size limit (`MAX_FILE_SIZE_BYTES` = 50 MB) enforced before decode and dimension limit (`MAX_IMAGE_DIMENSION` = 16384) enforced after decode. New error variants `InputTooLarge` and `DimensionTooLarge` with descriptive messages propagated through WASM.
 - **C1**: Normalized all fusion weights to sum = 1.0 (synthetic_base was 1.34, edited_base was 1.09, authentic_likelihood coefficients were 1.32). Fixed `0/0` NaN in `block_artifact_score` for flat images. Un-ignored 2 blocked tests. Added 5 regression tests (weight sums, NaN-free property, flat block artifact).
 - **C3**: Added Indeterminate classification branch — when both `synthetic_likelihood` and `edited_likelihood` fall below `INDETERMINATE_CEILING` (0.30) with spread below `INDETERMINATE_MIN_SPREAD` (0.08), the engine now emits `Indeterminate` (score 0.50, reason `SysInsuff001`) instead of defaulting to Authentic. Added `make_xorshift_png` test helper and 6 C3 tests. Updated ARCHITECTURE.md to quad-state classification.
+- **C2**: Replaced fabricated pixel-count-based latency formula with real `Instant::now()` per-layer wall-clock timing. Extracted `compute_pixel_statistics` and `compute_signal_metrics_timed` functions. Moved `compute_signal_metrics` to `#[cfg(test)]`. Updated latency test to validate real measurement properties.
 
 ### Planned
 

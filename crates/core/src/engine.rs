@@ -5,6 +5,7 @@ use crate::model::{
 use image::{GrayImage, ImageReader};
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::io::Cursor;
+use std::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VerifyError {
@@ -98,7 +99,9 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
 
     let gray = image.to_luma8();
 
-    let metrics = compute_signal_metrics(&gray);
+    // C2: Real per-layer timing via compute_signal_metrics_timed.
+    let timed = compute_signal_metrics_timed(&gray);
+    let metrics = timed.metrics;
 
     // Synthetic-base fusion weights — normalized to sum = 1.00 (C1 fix).
     let synthetic_base = (0.18 * metrics.block_artifact_score
@@ -140,12 +143,6 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
     // Authentic complement — coefficients sum to 1.0 (C1 fix, was 0.72+0.60=1.32).
     let authentic_likelihood =
         (1.0 - 0.55 * synthetic_likelihood - 0.45 * edited_likelihood).clamp(0.0, 1.0);
-    let layer_contributions = compute_layer_contributions(&metrics);
-    let threshold_profile = ThresholdProfile {
-        synthetic_min: SYNTHETIC_MIN_THRESHOLD,
-        synthetic_margin: SYNTHETIC_MARGIN_THRESHOLD,
-        suspicious_min: SUSPICIOUS_MIN_THRESHOLD,
-    };
 
     let (classification, authenticity_score, reason_codes, layer_reasons) =
         if synthetic_likelihood > SYNTHETIC_MIN_THRESHOLD
@@ -209,8 +206,15 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
             )
         };
 
-    let pixel_count = gray.width() as f32 * gray.height() as f32;
-    let scale = (pixel_count / 12_000_000.0).clamp(0.4, 2.4);
+    // --- Fusion timing (C2: real measurement) ---
+    let t_fusion = Instant::now();
+    let layer_contributions = compute_layer_contributions(&metrics);
+    let threshold_profile = ThresholdProfile {
+        synthetic_min: SYNTHETIC_MIN_THRESHOLD,
+        synthetic_margin: SYNTHETIC_MARGIN_THRESHOLD,
+        suspicious_min: SUSPICIOUS_MIN_THRESHOLD,
+    };
+    let fusion_ms = t_fusion.elapsed().as_millis() as u32;
 
     Ok(VerificationResult {
         authenticity_score,
@@ -220,36 +224,107 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
         layer_contributions,
         threshold_profile,
         latency_ms: LayerLatencyMs {
-            signal: (78.0 * scale) as u32,
-            physical: (96.0 * scale) as u32,
-            hybrid: (118.0 * scale) as u32,
-            semantic: (132.0 * scale) as u32,
-            fusion: 18,
+            signal: timed.signal_ms,
+            physical: timed.physical_ms,
+            hybrid: timed.hybrid_ms,
+            semantic: timed.semantic_ms,
+            fusion: fusion_ms,
         },
     })
 }
 
-fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
+/// Per-layer timing bundled with signal metrics (C2: real latency).
+struct TimedMetrics {
+    metrics: SignalMetrics,
+    signal_ms: u32,
+    physical_ms: u32,
+    hybrid_ms: u32,
+    semantic_ms: u32,
+}
+
+/// Compute all signal metrics with real per-layer wall-clock timing.
+fn compute_signal_metrics_timed(gray: &GrayImage) -> TimedMetrics {
     let width = gray.width();
     let height = gray.height();
 
     if width < 3 || height < 3 {
-        return SignalMetrics {
-            noise_score: 0.0,
-            edge_score: 0.0,
-            block_artifact_score: 0.0,
-            block_variance_cv: 0.0,
-            spectral_peak_score: 0.0,
-            high_freq_ratio_score: 0.0,
-            prnu_plausibility_score: 0.0,
-            cross_region_consistency: 0.0,
-            hybrid_local_inconsistency: 0.0,
-            hybrid_seam_anomaly: 0.0,
-            semantic_pattern_repetition: 0.0,
-            semantic_gradient_entropy: 0.0,
-            semantic_synthetic_cue: 0.0,
+        return TimedMetrics {
+            metrics: SignalMetrics {
+                noise_score: 0.0,
+                edge_score: 0.0,
+                block_artifact_score: 0.0,
+                block_variance_cv: 0.0,
+                spectral_peak_score: 0.0,
+                high_freq_ratio_score: 0.0,
+                prnu_plausibility_score: 0.0,
+                cross_region_consistency: 0.0,
+                hybrid_local_inconsistency: 0.0,
+                hybrid_seam_anomaly: 0.0,
+                semantic_pattern_repetition: 0.0,
+                semantic_gradient_entropy: 0.0,
+                semantic_synthetic_cue: 0.0,
+            },
+            signal_ms: 0,
+            physical_ms: 0,
+            hybrid_ms: 0,
+            semantic_ms: 0,
         };
     }
+
+    // --- Signal layer: pixel statistics + FFT ---
+    let t_signal = Instant::now();
+    let (noise_score, edge_score, block_artifact_score, block_variance_cv) =
+        compute_pixel_statistics(gray);
+    let residual_map = compute_residual_map(gray);
+    let (spectral_peak_score, high_freq_ratio_score) =
+        compute_fft_signal_features(&residual_map, width as usize, height as usize);
+    let signal_ms = t_signal.elapsed().as_millis() as u32;
+
+    // --- Physical layer: PRNU proxy ---
+    let t_physical = Instant::now();
+    let (prnu_plausibility_score, cross_region_consistency) =
+        compute_prnu_proxy_metrics(&residual_map, width as usize, height as usize);
+    let physical_ms = t_physical.elapsed().as_millis() as u32;
+
+    // --- Hybrid layer: local inconsistency + seam ---
+    let t_hybrid = Instant::now();
+    let (hybrid_local_inconsistency, hybrid_seam_anomaly) =
+        compute_hybrid_metrics(&residual_map, width as usize, height as usize);
+    let hybrid_ms = t_hybrid.elapsed().as_millis() as u32;
+
+    // --- Semantic layer: repetition + gradient entropy ---
+    let t_semantic = Instant::now();
+    let (semantic_pattern_repetition, semantic_gradient_entropy, semantic_synthetic_cue) =
+        compute_semantic_metrics(&residual_map, gray, width as usize, height as usize);
+    let semantic_ms = t_semantic.elapsed().as_millis() as u32;
+
+    TimedMetrics {
+        metrics: SignalMetrics {
+            noise_score,
+            edge_score,
+            block_artifact_score,
+            block_variance_cv,
+            spectral_peak_score,
+            high_freq_ratio_score,
+            prnu_plausibility_score,
+            cross_region_consistency,
+            hybrid_local_inconsistency,
+            hybrid_seam_anomaly,
+            semantic_pattern_repetition,
+            semantic_gradient_entropy,
+            semantic_synthetic_cue,
+        },
+        signal_ms,
+        physical_ms,
+        hybrid_ms,
+        semantic_ms,
+    }
+}
+
+/// Extract pixel-level statistics: noise, edge, block artifact, block variance CV.
+fn compute_pixel_statistics(gray: &GrayImage) -> (f32, f32, f32, f32) {
+    let width = gray.width();
+    let height = gray.height();
 
     let mut noise_accum = 0.0f64;
     let mut edge_accum = 0.0f64;
@@ -285,8 +360,16 @@ fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
         }
     }
 
-    let noise_score = ((noise_accum / px_count) / 50.0).clamp(0.0, 1.0) as f32;
-    let edge_score = ((edge_accum / px_count) / 50.0).clamp(0.0, 1.0) as f32;
+    let noise_score = if px_count > 0.0 {
+        ((noise_accum / px_count) / 50.0).clamp(0.0, 1.0) as f32
+    } else {
+        0.0
+    };
+    let edge_score = if px_count > 0.0 {
+        ((edge_accum / px_count) / 50.0).clamp(0.0, 1.0) as f32
+    } else {
+        0.0
+    };
 
     let boundary_avg = if boundary_count > 0.0 {
         boundary_diff_accum / boundary_count
@@ -300,12 +383,40 @@ fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
     };
 
     let block_artifact_score = if interior_avg <= f64::EPSILON {
-        // No interior texture — block artifact signal is undefined; treat as absent.
         0.0f32
     } else {
         (((boundary_avg / interior_avg) - 1.0) / 0.8).clamp(0.0, 1.0) as f32
     };
     let block_variance_cv = compute_block_variance_cv(gray);
+
+    (noise_score, edge_score, block_artifact_score, block_variance_cv)
+}
+
+#[cfg(test)]
+fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
+    let width = gray.width();
+    let height = gray.height();
+
+    if width < 3 || height < 3 {
+        return SignalMetrics {
+            noise_score: 0.0,
+            edge_score: 0.0,
+            block_artifact_score: 0.0,
+            block_variance_cv: 0.0,
+            spectral_peak_score: 0.0,
+            high_freq_ratio_score: 0.0,
+            prnu_plausibility_score: 0.0,
+            cross_region_consistency: 0.0,
+            hybrid_local_inconsistency: 0.0,
+            hybrid_seam_anomaly: 0.0,
+            semantic_pattern_repetition: 0.0,
+            semantic_gradient_entropy: 0.0,
+            semantic_synthetic_cue: 0.0,
+        };
+    }
+
+    let (noise_score, edge_score, block_artifact_score, block_variance_cv) =
+        compute_pixel_statistics(gray);
     let residual_map = compute_residual_map(gray);
     let (spectral_peak_score, high_freq_ratio_score) =
         compute_fft_signal_features(&residual_map, width as usize, height as usize);
@@ -1172,20 +1283,36 @@ mod tests {
     }
 
     #[test]
-    fn verify_result_latency_fields_are_populated() {
-        let png = make_png(64, 64, 128);
+    fn verify_result_latency_fields_are_real_measurements() {
+        // Use a large enough image to produce measurable signal-layer time.
+        let png = make_noisy_png(512, 512, 7);
         let req = VerifyRequest {
             image_bytes: png,
             execution_mode: ExecutionMode::Deep,
             hardware_tier: HardwareTier::CpuOnly,
         };
         let result = verify(req).unwrap();
-        // Current implementation produces fabricated but nonzero latency
-        assert!(result.latency_ms.signal > 0);
-        assert!(result.latency_ms.physical > 0);
-        assert!(result.latency_ms.hybrid > 0);
-        assert!(result.latency_ms.semantic > 0);
-        assert!(result.latency_ms.fusion > 0);
+        // C2: Real measurements — signal layer does the bulk of work.
+        // For a 512×512 image the signal layer should be non-zero on most hardware.
+        // Individual sub-millisecond layers may report 0 — that's correct.
+        let total = result.latency_ms.signal
+            + result.latency_ms.physical
+            + result.latency_ms.hybrid
+            + result.latency_ms.semantic
+            + result.latency_ms.fusion;
+        assert!(
+            total < 30_000,
+            "total latency should be <30s for 512×512, got {}ms",
+            total
+        );
+        // Verify no fabricated values: with real timing, fusion on a small image
+        // should be ≤ signal (fusion only computes layer_contributions + threshold).
+        assert!(
+            result.latency_ms.fusion <= result.latency_ms.signal + 1,
+            "fusion ({}) should not exceed signal ({})",
+            result.latency_ms.fusion,
+            result.latency_ms.signal
+        );
     }
 
     // ---------------------------------------------------------------

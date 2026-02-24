@@ -160,14 +160,14 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | Browser-first WASM target | Meets privacy requirement (no upload) | Main-thread blocking (H8), limited compute budget |
 | Grayscale-only analysis | Halves memory, simplifies math | Loses color-channel forensic signals |
 | 64×64 FFT window cap | Bounded compute cost | Misses fine spectral artifacts (H3) |
-| Fabricated latency values | Placeholder for future instrumentation | Produces misleading diagnostics (C2) |
+| Fabricated latency values | Placeholder for future instrumentation | ~~Produces misleading diagnostics (C2)~~ RESOLVED: real `Instant::now()` timing |
 
 ## Known Risks — Summary
 
 | ID | Risk | Mitigation Status |
 |----|------|-------------------|
 | C1 | Fusion weights >1.0 — unstable scoring | **RESOLVED** — weights normalized to sum = 1.00 |
-| C2 | Fabricated latency data | **UNMITIGATED** — requires real measurement or removal |
+| C2 | Fabricated latency data | **RESOLVED** — real `Instant::now()` per-layer timing |
 | C3 | Indeterminate classification dead code | **RESOLVED** — quad-state classification with Indeterminate branch |
 | C4 | Zero automated tests | **RESOLVED** — 78 tests + CI pipeline |
 | C5 | Unbounded memory from large images | **RESOLVED** — 50 MB file + 16384 dimension limits |
