@@ -351,7 +351,14 @@ fn is_supported_image(path: &Path) -> bool {
 
 fn derive_perturbation_tags(path: &Path) -> Vec<String> {
     let mut tags = Vec::new();
-    let full = path.to_string_lossy().to_ascii_lowercase();
+
+    // H5: match keywords only against the filename stem — never against the
+    // extension or directory path components. This prevents every `.jpg` file
+    // from being spuriously tagged as "jpeg".
+    let stem = match path.file_stem().and_then(|s| s.to_str()) {
+        Some(s) => s.to_ascii_lowercase(),
+        None => return tags,
+    };
 
     let patterns = [
         ("jpeg", "jpeg"),
@@ -368,7 +375,7 @@ fn derive_perturbation_tags(path: &Path) -> Vec<String> {
     ];
 
     for (needle, label) in patterns {
-        if full.contains(needle) {
+        if stem.contains(needle) {
             let label = label.to_string();
             if !tags.contains(&label) {
                 tags.push(label);
@@ -423,9 +430,8 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
-    // derive_perturbation_tags (known issue H5: currently matches
-    // file extensions, so .jpg gets "jpeg" tag — this test documents
-    // the current behavior as a baseline before the H5 fix)
+    // derive_perturbation_tags — H5 fixed: matches filename stem only,
+    // not extension or directory path components.
     // ---------------------------------------------------------------
 
     #[test]
@@ -456,6 +462,40 @@ mod tests {
     fn perturbation_tag_no_false_tags_on_clean_name() {
         let tags = derive_perturbation_tags(Path::new("clean_photo.png"));
         assert!(tags.is_empty(), "expected no tags, got: {tags:?}");
+    }
+
+    // H5: extension must NOT produce tags
+    #[test]
+    fn h5_plain_jpg_no_jpeg_tag() {
+        let tags = derive_perturbation_tags(Path::new("photo.jpg"));
+        assert!(!tags.contains(&"jpeg".to_string()), "plain .jpg must not produce jpeg tag, got: {tags:?}");
+    }
+
+    #[test]
+    fn h5_plain_jpeg_no_jpeg_tag() {
+        let tags = derive_perturbation_tags(Path::new("photo.jpeg"));
+        assert!(!tags.contains(&"jpeg".to_string()), "plain .jpeg must not produce jpeg tag, got: {tags:?}");
+    }
+
+    #[test]
+    fn h5_plain_webp_no_webp_tag() {
+        let tags = derive_perturbation_tags(Path::new("photo.webp"));
+        assert!(!tags.contains(&"webp".to_string()), "plain .webp must not produce webp tag, got: {tags:?}");
+    }
+
+    // H5: stem keywords still produce correct tags
+    #[test]
+    fn h5_recompressed_jpeg80_in_stem_gets_tag() {
+        let tags = derive_perturbation_tags(Path::new("photo_recompressed_jpeg80.jpg"));
+        assert!(tags.contains(&"recompressed".to_string()));
+        assert!(tags.contains(&"jpeg".to_string()));
+    }
+
+    // H5: directory path components must NOT produce tags
+    #[test]
+    fn h5_directory_name_ignored() {
+        let tags = derive_perturbation_tags(Path::new("dataset/recompressed/photo.png"));
+        assert!(tags.is_empty(), "directory component must not produce tags, got: {tags:?}");
     }
 
     // ---------------------------------------------------------------

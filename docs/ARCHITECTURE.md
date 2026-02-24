@@ -74,7 +74,6 @@ Two modes:
 1. **Default**: prints launch confirmation.
 2. **`stress <dataset_root>`**: batch evaluation across `authentic/`, `edited/`, `synthetic/` folders with per-class accuracy, perturbation tagging, and acceptance quality-bar gate.
 
-**KNOWN ISSUE (H5)**: Perturbation tags match file extensions, tagging every `.jpg` as "jpeg perturbation".
 **KNOWN ISSUE (H6)**: Follows symlinks without boundary checks.
 
 ### `web/` — Frontend
@@ -171,6 +170,6 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | C3 | Indeterminate classification dead code | **RESOLVED** — quad-state classification with Indeterminate branch |
 | C4 | Zero automated tests | **RESOLVED** — 78 tests + CI pipeline |
 | C5 | Unbounded memory from large images | **RESOLVED** — 50 MB file + 16384 dimension limits |
-| H1–H8 | Various high-priority issues | H2 **RESOLVED** (JPEG format gating), H4 **RESOLVED** (residual border exclusion), H7 **RESOLVED** (panic hook); remainder unmitigated — see EXECUTION_PLAN.md |
+| H1–H8 | Various high-priority issues | H2 **RESOLVED** (JPEG format gating), H4 **RESOLVED** (residual border exclusion), H5 **RESOLVED** (stem-only perturbation tagging), H7 **RESOLVED** (panic hook); remainder unmitigated — see EXECUTION_PLAN.md |
 
 All risk IDs reference the code review findings. See `docs/EXECUTION_PLAN.md` for remediation plan and sequencing.

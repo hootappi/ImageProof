@@ -142,7 +142,7 @@ A finding is "Done" when:
 | H2 | High | Block artifact scoring assumes JPEG 8×8 | **DONE** — Detect format via `ImageReader::format()`; `block_artifact_score` forced to 0.0 when `!is_jpeg`. Threaded `is_jpeg` through `compute_pixel_statistics` and `compute_signal_metrics_timed`. Added `make_jpeg` helper and 3 unit tests. | `crates/core/src/engine.rs` | S | Backend | — | `block_artifact_score` is 0.0 for PNG input ✓ | Unit tests ✓ |
 | H3 | High | FFT limited to 64×64 samples | Increase cap to `min(dim, 256)` with configurable ceiling constant | `crates/core/src/engine.rs` | S | Backend | — | FFT window ≥128 for images ≥128px; spectral_peak_score changes validated in stress test | Unit test; stress-test regression check |
 | H4 | High | Residual map border zeros contaminate metrics | **DONE** — `compute_residual_map` now returns `(Vec<f32>, usize, usize)` interior-only buffer excluding border rows/cols. Downstream FFT/PRNU/hybrid/semantic consumers receive clean dimensions. Semantic gradient loop decoupled to use `gray.width()`/`gray.height()`. 4 existing tests updated, 3 new H4 tests. | `crates/core/src/engine.rs` | S | Backend | — | Interior-only residual verified ✓; no border zeros in downstream ✓ | Unit tests ✓ |
-| H5 | High | Perturbation tagging matches file extensions | Match perturbation keywords only against filename stem (not extension or directory path components) | `crates/cli/src/main.rs` | S | Backend | — | `photo.jpg` does NOT get "jpeg" tag; `photo_recompressed_jpeg80.jpg` DOES | Unit test for `derive_perturbation_tags` |
+| H5 | High | Perturbation tagging matches file extensions | **DONE** — `derive_perturbation_tags` now uses `Path::file_stem()` to match keywords against the filename stem only. Extensions and directory components are excluded. Added 5 new H5 tests (3 extension-exclusion, 1 stem-keyword, 1 directory-ignore). | `crates/cli/src/main.rs` | S | Backend | — | `photo.jpg` produces no jpeg tag ✓; `photo_recompressed_jpeg80.jpg` gets tag ✓ | Unit tests ✓ |
 | H6 | High | CLI follows symlinks without boundary check | Check `entry.file_type()?.is_symlink()` and skip; or canonicalize and reject paths outside dataset root | `crates/cli/src/main.rs` | S | Backend | — | Symlink to file outside dataset root is skipped with warning | Integration test (platform-specific) |
 | H7 | High | No WASM panic handler | **DONE** — Added `console_error_panic_hook` dep + `#[wasm_bindgen(start)] fn init()` that calls `set_once()`. | `crates/wasm-bindings/src/lib.rs`, `crates/wasm-bindings/Cargo.toml` | S | Backend | — | WASM panic produces readable message in browser console ✓ | Manual verification; WASM integration test |
 | H8 | High | Synchronous main-thread WASM execution | Move `verify_image` call into a Web Worker; post result back via message | `web/src/main.js`, new `web/src/worker.js` | M | Frontend | — | UI thread remains responsive during verification (no freeze >100ms) | Manual test: click during verify; automated Lighthouse check |
@@ -229,7 +229,7 @@ Each PR should contain **one logical change** that is independently verifiable:
 | H2 | H2 | M1 |
 | H3 | H3 | M3 |
 | H4 | H4 | M1 | **DONE** |
-| H5 | H5 | M1 |
+| H5 | H5 | M1 | **DONE** |
 | H6 | H6 | M1 |
 | H7 | H7 | M0 |
 | H8 | H8 | M2 |

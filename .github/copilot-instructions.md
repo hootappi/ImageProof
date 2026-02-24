@@ -230,6 +230,11 @@ Starting workspace setup for ImageProof application.
 - Semantic gradient entropy decoupled to use `gray.width()`/`gray.height()` directly instead of residual dimensions.
 - Updated 4 existing residual map tests; added 3 new H4 tests (manual value verification, FFT downstream clean, 3×3 edge case).
 
+### Perturbation Tag Fix — H5 (2026-02-24)
+- `derive_perturbation_tags` now matches keywords against filename stem only (`Path::file_stem()`), not against the full path string.
+- Extensions (`.jpg`, `.jpeg`, `.webp`) and directory components no longer produce spurious perturbation tags.
+- Added 5 new H5 tests: 3 extension-exclusion, 1 stem-keyword, 1 directory-ignore.
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.
