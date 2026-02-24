@@ -1,153 +1,124 @@
 # ImageProof
 
-Client-side visual authenticity verification engine scaffold.
+ImageProof is a client-side image authenticity verification engine. It processes untrusted image files entirely locally — in-browser via Rust/WASM or natively via CLI — extracting statistical, physical, and semantic signal features to classify images as Authentic, Suspicious (edited), or Synthetic (AI-generated), with confidence scores and structured explainability. No image data ever leaves the client.
 
-## Workspace
+> **Status**: Early prototype (v0.1.0). A hardening sprint is planned — see `docs/EXECUTION_PLAN.md` for the full backlog. Known critical issues are documented in `docs/ARCHITECTURE.md` and `docs/CHANGELOG.md`.
 
-- `crates/core`: core verification domain types and engine contracts
-- `crates/wasm-bindings`: browser/WASM interface layer
-- `crates/cli`: runnable scaffold entrypoint
-- `web`: minimal browser app shell that loads WASM bindings
+## Quickstart
 
-## VS Code Extensions
-
-Recommended extensions are defined in `.vscode/extensions.json`:
-
-- `rust-lang.rust-analyzer`
-- `tamasfe.even-better-toml`
-- `serayuzgur.crates`
-- `vadimcn.vscode-lldb`
-
-## Build
-
-### One-Click Start (Recommended)
-
-From project root:
-
-Double-click:
+### One-Click Start (Windows, Recommended)
 
 ```bat
 start-web.cmd
 ```
 
-or run in PowerShell:
+Or in PowerShell:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\start-web.ps1
+Set-ExecutionPolicy -Scope Process Bypass; .\start-web.ps1
 ```
 
-The script auto-checks/installs required tooling (Rust toolchain, C++ linker workload, wasm-pack), runs web verification build, and starts the dev server.
+The script auto-checks/installs Rust toolchain, C++ linker, wasm-pack, and npm dependencies, then builds and launches the dev server at `http://127.0.0.1:4173/`.
 
-### Prerequisites (Windows)
-
-- Rust toolchain via `rustup`
-- Visual Studio 2022 Build Tools with C++ workload (for `link.exe`)
-
-### Compile
+### Manual Start
 
 ```powershell
-cargo check
-```
-
-### Build WASM for Browser
-
-```powershell
-Set-Location web
-npm run build:wasm
-```
-
-### Verify Web Build in One Command
-
-```powershell
-Set-Location web
-npm run check
-```
-
-### VS Code Task
-
-Run task `cargo: check` from the Command Palette or Tasks runner.
-
-### Launch (Scaffold)
-
-```powershell
-cargo run -p imageproof-cli
-```
-
-### Launch Web App (Local)
-
-```powershell
-Set-Location web
+# Prerequisites: Rust toolchain (rustup), VS Build Tools (C++ workload), Node.js LTS, wasm-pack
+cd web
 npm install
-npm run build:wasm
+npm run check          # builds WASM + Vite production bundle
 npm run dev -- --host 127.0.0.1 --port 4173
 ```
 
-Open: `http://127.0.0.1:4173/`
+### CLI
 
-## Current Behavior
+```powershell
+cargo run -p imageproof-cli                        # launch validation
+cargo run -p imageproof-cli -- stress <dataset>    # batch evaluation
+```
 
-- `imageproof-core` currently runs Deep heuristic verification with Signal Intelligence v1 (noise residual extraction + FFT spectral features + block/edge metrics), Physical Intelligence v1 (PRNU plausibility proxy + cross-region consistency), Hybrid Manipulation v1 (localized residual inconsistency + seam anomaly cues), and Semantic Intelligence v1 (residual repetition + gradient-entropy cues), returning one of three classifications: `Authentic`, `Suspicious` (edited), or `Synthetic`.
-- Deep verification output now includes explicit per-layer contribution scores (`signal`, `physical`, `hybrid`, `semantic`) and an embedded threshold profile (`synthetic_min`, `synthetic_margin`, `suspicious_min`) used by the current fusion gates.
-- Edited-path fusion is currently tuned conservatively (higher suspicious threshold + stronger consistency suppression) to reduce false-positive edited outcomes on authentic photos.
-- Synthetic-path fusion is tuned with stronger real-signal suppression (physical consistency and natural high-frequency texture) to reduce false-positive AI-generated outcomes on authentic camera photos.
-- `imageproof-wasm-bindings` exposes `verify_image` for browser/WASM integration.
-- `imageproof-cli` provides a runnable scaffold entrypoint for launch validation.
-- `web` provides a modern drag-drop upload flow with in-box image preview, `Verify` and `Clear` actions, and simple human-readable result output with three options: real, edited, or more likely AI generated (each with confidence).
+## Workspace
 
-## Repository Operations
+```
+crates/core/           Core domain types (model.rs) and verification engine (engine.rs)
+crates/wasm-bindings/  Thin wasm-bindgen bridge for browser
+crates/cli/            Native CLI: launch scaffold + stress-test harness
+web/                   Vite frontend (vanilla JS) with drag-drop upload flow
+docs/                  Architecture, security, operations, execution plan
+```
 
-- Build validation: `cargo check` or VS Code task `cargo: check`.
-- Web validation: `Set-Location web; npm run check`.
-- Launch validation: `cargo run -p imageproof-cli`.
-- Recommended workflow: keep changes incremental and update `.github/copilot-instructions.md` checklist as steps complete.
+## Configuration
+
+There are **no runtime configuration options** at present. All thresholds and weights are compile-time constants in `crates/core/src/engine.rs`. There are no secrets, API keys, or environment variables.
+
+| Parameter | File | Default |
+|-----------|------|---------|
+| `SYNTHETIC_MIN_THRESHOLD` | `engine.rs` | 0.66 |
+| `SYNTHETIC_MARGIN_THRESHOLD` | `engine.rs` | 0.12 |
+| `SUSPICIOUS_MIN_THRESHOLD` | `engine.rs` | 0.62 |
+
+Safe defaults: all processing is local, no network calls, no persistent state.
+
+## Common Workflows
+
+| Task | Command |
+|------|---------|
+| Compile check (Rust) | `cargo check` |
+| Compile check (Rust, VS Code) | Task → `cargo: check` |
+| Build WASM bindings | `cd web && npm run build:wasm` |
+| Full web build (WASM + Vite) | `cd web && npm run check` |
+| Run dev server | `cd web && npm run dev -- --host 127.0.0.1 --port 4173` |
+| Lint (Rust) | `cargo clippy -- -D warnings` |
+| Run tests (Rust) | `cargo test` *(no tests yet — see hardening plan)* |
+| Stress test | `cargo run -p imageproof-cli -- stress <dataset_root>` |
 
 ## Stress Testing
-
-- Run the robustness harness:
 
 ```powershell
 cargo run -p imageproof-cli -- stress <dataset_root>
 ```
 
-- Expected dataset structure:
+Expected dataset structure:
 
-```text
+```
 <dataset_root>/
-	authentic/
-	edited/
-	synthetic/
+    authentic/      # real camera photos
+    edited/         # manipulated images
+    synthetic/      # AI-generated images
 ```
 
-- The harness recursively scans `jpg/jpeg/png/webp` files, runs Deep verification, and reports:
-	- overall accuracy
-	- per-class accuracy (`Authentic`, `Suspicious`, `Synthetic`)
-	- perturbation-tag accuracy based on path hints (`resized`, `cropped`, `recompressed`, `jpeg`, `webp`, `lowlight`)
-	- decode-failure count
+Recursively scans `jpg/jpeg/png/webp` files and reports per-class accuracy, perturbation-tag accuracy, decode failures, and acceptance quality-bar pass/fail.
 
-## Customization Baseline
+### Acceptance Quality Bar
 
-- Modular core contracts (`model` and `engine`) for maintainability and testability.
-- Structured reason code taxonomy and execution/hardware tier enums.
-- Repository editor conventions in `.editorconfig`.
+| Criterion | Threshold |
+|-----------|-----------|
+| Min samples per class | ≥ 25 |
+| Authentic false-positive rate | ≤ 1% |
+| Edited miss rate | ≤ 10% |
+| Synthetic miss rate | ≤ 10% |
 
-## Status
+## Troubleshooting
 
-Workspace setup checklist is complete and aligned to the current implementation baseline.
+| Problem | Likely Cause | Fix |
+|---------|-------------|-----|
+| `npm run build:wasm` fails | `wasm-pack` not installed or `wasm32-unknown-unknown` target missing | `cargo install wasm-pack && rustup target add wasm32-unknown-unknown` |
+| WASM init fails in browser | Missing `web/pkg/` directory (not built) | Run `cd web && npm run build:wasm` |
+| Browser tab crashes on large image | No input dimension limits (known issue C5) | Use images ≤ 16 MP for now; fix tracked in hardening plan |
+| `RuntimeError: unreachable` in console | WASM panic with no panic hook (known issue H7) | Reproduce via CLI for stack trace; fix tracked in hardening plan |
+| Authentic photo classified as edited/synthetic | False positive from heuristic engine | Report image; check fusion thresholds; run stress test to measure rates |
 
-## Open Items
+## Documentation
 
-- Stress-test the Deep verification pipeline across authentic, edited, and synthetic image sets (including compression/resizing variants).
-- Prepare Vercel deployment path for the `web` app to collect real-user feedback.
-- Define lightweight feedback collection loop (structured form/issues + triage cadence for threshold tuning).
+| Document | Contents |
+|----------|---------|
+| `docs/ARCHITECTURE.md` | Components, data flow, trust boundaries, design decisions, known risks |
+| `docs/SECURITY.md` | Threat model, attack surfaces, security controls, test checklist |
+| `docs/OPERATIONS.md` | Deployment model, observability gaps, failure modes, runbooks |
+| `docs/EXECUTION_PLAN.md` | Hardening backlog, milestones, sequencing, acceptance criteria, patch strategy |
+| `docs/CHANGELOG.md` | Release history and planned changes |
 
-## Acceptance Quality Bar
+## VS Code Extensions
 
-Current stress-test gate (printed by `imageproof-cli stress`) uses the following release-readiness criteria:
-
-- Minimum sample size: at least `25` images per class (`authentic`, `edited`, `synthetic`).
-- Authentic false-positive rate: `<=1%` (`authentic` classified as `Suspicious` or `Synthetic`).
-- Edited miss rate: `<=10%` (`edited` classified as `Authentic`).
-- Synthetic miss rate: `<=10%` (`synthetic` classified as `Authentic`).
-
-A run is marked `PASS` only if all sample-size and rate criteria are met; otherwise it is marked `FAIL` with explicit notes.
+Recommended in `.vscode/extensions.json`:
+`rust-lang.rust-analyzer`, `tamasfe.even-better-toml`, `serayuzgur.crates`, `vadimcn.vscode-lldb`

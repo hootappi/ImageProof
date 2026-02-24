@@ -1,0 +1,249 @@
+# Execution Plan — ImageProof Hardening
+
+> Created: 2026-02-24 | Source: Adversarial code review findings
+> Status: **PLANNED** — awaiting team review and sprint commitment
+
+---
+
+## Objectives
+
+**"Fixed" means:**
+
+1. Every Critical finding is resolved and verified by automated test.
+2. Every High finding is resolved or has an explicitly accepted risk with documented workaround.
+3. CI pipeline enforces `cargo test`, `cargo clippy`, and `npm run check` on every push.
+4. The system can emit Indeterminate when evidence is insufficient.
+5. Fusion model is mathematically sound (weights sum to 1.0 or use a principled aggregation).
+6. Stress test passes the acceptance quality bar on a ≥25-sample-per-class dataset.
+
+---
+
+## Workstreams
+
+| ID | Workstream | Scope |
+|----|-----------|-------|
+| **WS-S** | Security | Input validation, symlink protection, panic handling, CSP |
+| **WS-R** | Reliability | Fusion normalization, Indeterminate path, latency truth, edge cases |
+| **WS-A** | Architecture | Layer abstraction, duplicate elimination, config extraction |
+| **WS-O** | Observability | Panic hook, real timing, structured logging |
+| **WS-P** | Performance | Web Worker, buffer copy elimination, FFT window improvements |
+| **WS-DX** | Developer Experience | CI pipeline, test suite, linting, perturbation tag fix |
+
+---
+
+## Sequencing Rationale
+
+1. **CI + test harness first (M0)** — everything else must be verifiable.
+2. **Input validation next (M1)** — reduces blast radius for all downstream work. Prevents OOM/crash.
+3. **Scoring model fix (M1)** — all accuracy tuning depends on a sound mathematical base.
+4. **Indeterminate path (M1)** — trust constraint; must exist before any production use.
+5. **Frontend + UX fixes (M2)** — depends on stable backend contract.
+6. **Architecture refactor (M3)** — lower urgency, higher effort, benefits future work.
+
+---
+
+## Milestones
+
+### M0 — Guardrails (Est. 2–3 days)
+
+Establish automated quality gates so all subsequent changes are verifiable.
+
+| Item | Deliverable |
+|------|------------|
+| CI pipeline | GitHub Actions workflow: `cargo test`, `cargo clippy -- -D warnings`, `npm run check` |
+| Unit test scaffold | `#[cfg(test)]` modules in `engine.rs` and `model.rs` with ≥10 initial tests |
+| WASM panic hook | `console_error_panic_hook` installed in `wasm-bindings` |
+| Clippy clean | Zero warnings on `cargo clippy` |
+
+**Exit criteria**: CI passes green on main branch. At least one test per public function in core.
+
+### M1 — Critical Fixes (Est. 4–6 days)
+
+Resolve all Critical findings and the most impactful High findings.
+
+| Item | Deliverable |
+|------|------------|
+| Input limits | `MAX_IMAGE_DIMENSION` (16384) and `MAX_FILE_SIZE_BYTES` (50 MB) enforced before decode |
+| Fusion normalization | Weights normalized to sum ≤1.0; all existing thresholds recalibrated |
+| Indeterminate classification | Emitted when `max(synthetic_likelihood, edited_likelihood) < INDETERMINATE_CEILING` and confidence spread is low |
+| Latency truth | `std::time::Instant` per-layer measurement (native), `Performance.now()` wrapper (WASM), OR remove `latency_ms` field |
+| JPEG-only block scoring | Check decoded image format; skip `block_artifact_score` for non-JPEG |
+| Perturbation tag fix | Match only filename stem (not extension or full path) for perturbation keywords |
+
+**Exit criteria**: Stress test passes quality bar. All Critical tests green. Indeterminate emitted on ≤2×2 images.
+
+### M2 — High-Priority Hardening (Est. 3–5 days)
+
+| Item | Deliverable |
+|------|------------|
+| Frontend confidence fix | Replace parabolic Suspicious formula with linear `(1 - authenticity_score)` inversion |
+| Web Worker | Move `verify_image` call to a Web Worker; main thread stays responsive |
+| Symlink protection | Skip symlinks in `collect_recursive`, log skipped paths |
+| Authentic reason code fix | Emit reason codes based on actual layer contributions, not hard-coded PhyPrnu001 |
+| Residual border fix | Exclude border-zero pixels from all downstream consumers, or use mirror-padded residual |
+| CSP headers | Add meta tag in `index.html` and `vercel.json` header config |
+
+**Exit criteria**: UI does not freeze on 12MP image. Symlink test passes. Frontend confidence is monotonic.
+
+### M3 — Architecture + Performance (Est. 5–8 days)
+
+| Item | Deliverable |
+|------|------------|
+| Layer trait abstraction | `trait AnalysisLayer { fn analyze(&self, gray: &GrayImage) -> LayerOutput; }` with per-layer modules |
+| Deduplicate pixel iteration | Single residual-map computation reused by signal metrics; eliminate `compute_signal_metrics` duplicate loop |
+| FFT window scaling | Increase FFT cap to `min(dim, 256)` with configurable ceiling |
+| Buffer copy elimination | Change `VerifyRequest.image_bytes` to accept `&[u8]` via lifetime or Cow |
+| Runtime config | Load thresholds from optional TOML or environment variables |
+| f64 accumulation | Use f64 accumulators in correlation functions, cast to f32 at output |
+| HardwareTier usage | Either wire `HardwareTier` to conditional SIMD/GPU paths or remove the enum |
+| Fast mode | Either implement a lightweight fast path or remove from public API |
+
+**Exit criteria**: Layer modules compile and test independently. Stress test accuracy unchanged (regression gate). WASM binary size delta < 10%.
+
+---
+
+## Risks and Dependencies
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|-----------|
+| Fusion normalization changes all classification thresholds | HIGH | HIGH | Recalibrate using stress-test dataset immediately after normalization. Gate M1 exit on quality bar pass. |
+| Indeterminate gate triggers too aggressively | MEDIUM | MEDIUM | Start with conservative (narrow) indeterminate band; widen based on FP data. |
+| Web Worker introduces timing/UX regressions | LOW | MEDIUM | Feature-flag the Worker path; fall back to main-thread if Worker init fails. |
+| No calibration dataset available yet | HIGH | CRITICAL | M1 cannot exit without ≥25 images per class. Assembling this dataset is a hard dependency. |
+| Architecture refactor (M3) breaks WASM build | MEDIUM | MEDIUM | Maintain `npm run check` in CI; run on every PR. |
+
+**ASSUMPTION**: A calibration dataset with ≥25 authentic, ≥25 edited, and ≥25 synthetic images will be assembled before M1 exit.
+
+---
+
+## Definition of Done (DoD)
+
+A finding is "Done" when:
+
+1. Code change is merged to main via reviewed PR.
+2. At least one automated test directly validates the fix.
+3. CI passes green (cargo test + clippy + npm check).
+4. Relevant documentation (ARCHITECTURE.md, SECURITY.md) is updated.
+5. CHANGELOG.md entry added.
+6. No regression in stress-test accuracy (if applicable).
+
+---
+
+## Backlog
+
+| ID | Severity | Finding | Proposed Fix | Files/Modules | Effort | Owner | Deps | Acceptance Criteria | Verification |
+|----|----------|---------|-------------|---------------|--------|-------|------|-------------------|-------------|
+| C1 | Critical | Fusion weights sum >1.0 — unstable scoring | **DONE** — Normalized synthetic_base (1.34→1.00), edited_base (1.09→1.00), authentic_likelihood (1.32→1.00). Fixed 0/0 NaN in block_artifact_score. Un-ignored 2 tests. Added 5 regression tests. | `crates/core/src/engine.rs` | M | Backend | C4 | Weights verified to sum ≤1.0 in test ✓; no NaN on flat images ✓ | Unit test asserting weight sums ✓ |
+| C2 | Critical | Latency reporting is fabricated | Replace formula with `Instant::now()` measurement per layer, or remove `latency_ms` from output | `crates/core/src/engine.rs`, `crates/core/src/model.rs` | S | Backend | — | `latency_ms` values correspond to actual wall-clock time (±10%), OR field removed | Unit test: verify latency > 0 and ≤ 10s for normal image |
+| C3 | Critical | Indeterminate classification is dead code | **DONE** — Added Indeterminate branch with `INDETERMINATE_CEILING` (0.30) and `INDETERMINATE_MIN_SPREAD` (0.08). Xorshift white-noise image triggers Indeterminate (score 0.50, SysInsuff001). Added `make_xorshift_png` helper and 6 C3 tests. Updated ARCHITECTURE.md to quad-state. | `crates/core/src/engine.rs` | S | Backend | C1 | Xorshift noise image → Indeterminate ✓; constants consistent with higher thresholds ✓ | Unit tests ✓ |
+| C4 | Critical | Zero automated tests | **DONE** — 44 core + 17 CLI unit tests (59 total, 2 ignored pending C1). CI workflow added. | `crates/core/src/engine.rs`, `crates/cli/src/main.rs`, `.github/workflows/ci.yml` | L | Backend + Frontend | — | ≥30 tests passing ✅ (59); coverage on every public function | `cargo test` in CI ✅ |
+| C5 | Critical | Unbounded memory from large images | **DONE** — Added `MAX_FILE_SIZE_BYTES` (50 MB) pre-decode + `MAX_IMAGE_DIMENSION` (16384) post-decode guards. New error variants `InputTooLarge`, `DimensionTooLarge`. 6 new tests. | `crates/core/src/engine.rs` | S | Backend | — | 50 MB+ file rejected ✓; dimension limit enforced ✓ | Unit tests ✓ |
+| H1 | High | Frontend confidence distorts backend scores | Replace Suspicious formula `(1 - abs(0.5 - s) * 2)` with `Math.round((1 - bounded) * 100)` | `web/src/main.js` | S | Frontend | — | Suspicious confidence is monotonically decreasing with authenticity_score | Manual test + JS unit test |
+| H2 | High | Block artifact scoring assumes JPEG 8×8 | Detect decoded format; set `block_artifact_score = 0.0` for non-JPEG | `crates/core/src/engine.rs` | S | Backend | — | `block_artifact_score` is 0.0 for PNG input in unit test | Unit test with PNG bytes |
+| H3 | High | FFT limited to 64×64 samples | Increase cap to `min(dim, 256)` with configurable ceiling constant | `crates/core/src/engine.rs` | S | Backend | — | FFT window ≥128 for images ≥128px; spectral_peak_score changes validated in stress test | Unit test; stress-test regression check |
+| H4 | High | Residual map border zeros contaminate metrics | Exclude border rows/cols from downstream iteration ranges, or use mirror-padded residual | `crates/core/src/engine.rs` | S | Backend | — | 8×8 image border pixels excluded from FFT/PRNU/hybrid/semantic computations | Unit test: residual map borders not consumed |
+| H5 | High | Perturbation tagging matches file extensions | Match perturbation keywords only against filename stem (not extension or directory path components) | `crates/cli/src/main.rs` | S | Backend | — | `photo.jpg` does NOT get "jpeg" tag; `photo_recompressed_jpeg80.jpg` DOES | Unit test for `derive_perturbation_tags` |
+| H6 | High | CLI follows symlinks without boundary check | Check `entry.file_type()?.is_symlink()` and skip; or canonicalize and reject paths outside dataset root | `crates/cli/src/main.rs` | S | Backend | — | Symlink to file outside dataset root is skipped with warning | Integration test (platform-specific) |
+| H7 | High | No WASM panic handler | **DONE** — Added `console_error_panic_hook` dep + `#[wasm_bindgen(start)] fn init()` that calls `set_once()`. | `crates/wasm-bindings/src/lib.rs`, `crates/wasm-bindings/Cargo.toml` | S | Backend | — | WASM panic produces readable message in browser console ✓ | Manual verification; WASM integration test |
+| H8 | High | Synchronous main-thread WASM execution | Move `verify_image` call into a Web Worker; post result back via message | `web/src/main.js`, new `web/src/worker.js` | M | Frontend | — | UI thread remains responsive during verification (no freeze >100ms) | Manual test: click during verify; automated Lighthouse check |
+| M1 | Medium | Monolithic engine (858 lines, no layer abstraction) | Extract per-layer modules: `signal.rs`, `physical.rs`, `hybrid.rs`, `semantic.rs`; define `AnalysisLayer` trait | `crates/core/src/` | L | Backend | C1, C4 | Each layer compiles and tests independently; `engine.rs` ≤200 lines | Compile check; per-module unit tests |
+| M2 | Medium | ~40 undocumented magic numbers | Extract to named constants with doc comments; group in `config.rs` | `crates/core/src/engine.rs`, new `crates/core/src/config.rs` | M | Backend | M1 | Every numeric literal in fusion/metric code replaced with named constant | Grep for bare float literals in engine.rs returns zero |
+| M3 | Medium | No runtime configuration | Add optional TOML config loading for thresholds; env-var overrides | `crates/core/`, `crates/cli/` | M | Backend | M2 | CLI accepts `--config path.toml`; thresholds load from file | Integration test with custom config |
+| M4 | Medium | Duplicate pixel iteration (signal + residual) | Compute residual map once; derive noise/edge from it | `crates/core/src/engine.rs` | M | Backend | M1 | Single pixel-iteration pass; benchmark shows ≥30% speedup on 12MP | Benchmark test |
+| M5 | Medium | f32 precision loss in correlation sums | Use f64 accumulators in `compute_shifted_residual_corr` and `block_corr`; cast result to f32 | `crates/core/src/engine.rs` | S | Backend | — | Correlation on synthetic 1000×1000 test image matches f64 reference ±0.001 | Unit test with known correlation |
+| M6 | Medium | WASM entry forces full buffer copy | Change `VerifyRequest` to accept `Cow<[u8]>` or `&[u8]` with lifetime | `crates/core/src/model.rs`, `crates/core/src/engine.rs`, `crates/wasm-bindings/src/lib.rs` | S | Backend | — | No `.to_vec()` in WASM hot path | Code review; benchmark memory delta |
+| M7 | Medium | Authentic always emits PhyPrnu001 | Emit reason codes from actual layer contribution scores above threshold | `crates/core/src/engine.rs` | S | Backend | C1 | Authentic result on image with zero physical contribution omits PhyPrnu001 | Unit test |
+| M8 | Medium | Fast mode permanently broken | Implement lightweight fast path OR remove from public API and `ExecutionMode` enum | `crates/core/src/engine.rs`, `crates/wasm-bindings/src/lib.rs` | M | Backend | — | Fast mode either produces result or enum variant is removed | Compile check; unit test |
+| M9 | Medium | No Content-Security-Policy | Add CSP meta tag in `index.html`; add header config for Vercel | `web/index.html`, new `vercel.json` | S | Frontend | — | CSP header present in production response; `connect-src 'none'` enforced | Manual header inspection; security scan |
+| L1 | Low | start-web.ps1 auto-installs without consent | Add confirmation prompt before `winget install` commands | `start-web.ps1` | S | DevOps | — | Script prompts user before installing any software | Manual verification |
+| L2 | Low | No JS/CSS formatting | Add Prettier config and npm format script | `web/package.json`, new `.prettierrc` | S | Frontend | — | `npm run format` succeeds; CI checks format | CI step |
+| L3 | Low | No versioning strategy | Add `version` script or use `cargo-release`; document in CONTRIBUTING.md | Root `Cargo.toml`, new `CONTRIBUTING.md` | S | DevOps | — | Version bump process documented | Manual review |
+| L4 | Low | HardwareTier enum unused | Remove or wire to conditional code paths | `crates/core/src/model.rs`, consumers | S | Backend | M8 | No dead enum variants; `cargo clippy` clean | Clippy |
+| L5 | Low | image crate format auto-detection | Restrict to explicit formats after guessing; reject unknown | `crates/core/src/engine.rs` | S | Backend | — | Only JPEG/PNG/WebP accepted; GIF/BMP/TIFF rejected with error | Unit test with BMP bytes |
+
+---
+
+## Patch Strategy
+
+### Branch Strategy
+
+- **Main branch** (`main`): protected, requires PR + CI green + 1 approval.
+- **Feature branches**: `harden/<finding-id>` (e.g., `harden/c1-fusion-normalization`).
+- **Milestone branches** (optional): `harden/m0-guardrails`, `harden/m1-critical` for batching if team prefers.
+
+### PR Slicing
+
+Each PR should contain **one logical change** that is independently verifiable:
+
+| PR | Contents | Milestone |
+|----|---------|-----------|
+| PR-1 | CI pipeline (GitHub Actions) + clippy fixes | M0 |
+| PR-2 | WASM panic hook (H7) | M0 |
+| PR-3 | Unit test scaffold (C4 partial — metric function tests) | M0 |
+| PR-4 | Input limits (C5) + tests | M1 |
+| PR-5 | Fusion weight normalization (C1) + threshold recalibration + tests | M1 |
+| PR-6 | Indeterminate classification (C3) + tests | M1 |
+| PR-7 | Latency truth-or-remove (C2) + tests | M1 |
+| PR-8 | JPEG-only block scoring (H2) + residual border fix (H4) + tests | M1 |
+| PR-9 | Perturbation tag fix (H5) + symlink protection (H6) + tests | M1 |
+| PR-10 | Frontend confidence fix (H1) + CSP (M9) | M2 |
+| PR-11 | Web Worker (H8) | M2 |
+| PR-12 | Authentic reason code fix (M7) + f32 precision (M5) | M2 |
+| PR-13 | Layer trait + module extraction (M1 arch) | M3 |
+| PR-14 | Config extraction (M2, M3) + runtime config | M3 |
+| PR-15 | Duplicate iteration elimination (M4) + FFT window (H3) | M3 |
+| PR-16 | Buffer copy elimination (M6) + Fast mode resolution (M8) + dead code cleanup (L4) | M3 |
+
+### Test Strategy Upgrades
+
+| Layer | Current | Required |
+|-------|---------|----------|
+| Unit (Rust) | 0 tests | ≥30 tests: metric functions, fusion logic, classification gates, edge cases (tiny images, empty input, max dimensions) |
+| Integration (Rust) | 0 tests | ≥5 tests: known-classification images (1 authentic JPEG, 1 PNG, 1 synthetic, 1 edited, 1 corrupt) |
+| Property (Rust) | 0 tests | ≥3 tests: all scores in [0,1], fusion weights sum to 1.0, no panic on random bytes |
+| Security (Rust) | 0 tests | ≥4 tests: oversized image, symlink, 1×1 image, corrupted header (see SECURITY.md checklist) |
+| Frontend (JS) | 0 tests | ≥5 tests: `formatConfidence` for each classification, `formatJustification` for each classification |
+| CI | None | GitHub Actions: `cargo test`, `cargo clippy -- -D warnings`, `npm run check` on push/PR |
+
+### Rollout Strategy
+
+1. **M0 (Guardrails)** — merge directly to main. No behavioral change. Adds safety net.
+2. **M1 (Critical)** — merge PRs one at a time. After C1 (fusion normalization), **immediately re-run stress test** and recalibrate thresholds if needed before merging further M1 PRs.
+3. **M2 (High)** — merge after M1 is stable. Web Worker (H8) should be feature-flagged: fall back to main-thread if Worker fails to initialize.
+4. **M3 (Architecture)** — merge after M2. Run full stress test before and after refactor to confirm no accuracy regression.
+
+**Rollback**: Any PR that breaks CI or regresses stress-test accuracy is reverted immediately.
+
+---
+
+## Appendix: Finding ID Cross-Reference
+
+| Review ID | Backlog ID | Milestone |
+|-----------|-----------|-----------|
+| C1 | C1 | M1 |
+| C2 | C2 | M1 |
+| C3 | C3 | M1 |
+| C4 | C4 | M0 |
+| C5 | C5 | M1 |
+| H1 | H1 | M2 |
+| H2 | H2 | M1 |
+| H3 | H3 | M3 |
+| H4 | H4 | M1 |
+| H5 | H5 | M1 |
+| H6 | H6 | M1 |
+| H7 | H7 | M0 |
+| H8 | H8 | M2 |
+| M1 (arch) | M1 | M3 |
+| M2 (magic) | M2 | M3 |
+| M3 (config) | M3 | M3 |
+| M4 (dup iter) | M4 | M3 |
+| M5 (f32) | M5 | M2 |
+| M6 (copy) | M6 | M3 |
+| M7 (reason) | M7 | M2 |
+| M8 (fast) | M8 | M3 |
+| M9 (CSP) | M9 | M2 |
+| L1 | L1 | M3 |
+| L2 | L2 | M3 |
+| L3 | L3 | M3 |
+| L4 | L4 | M3 |
+| L5 | L5 | M3 |

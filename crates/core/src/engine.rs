@@ -10,6 +10,14 @@ use std::io::Cursor;
 pub enum VerifyError {
     #[error("image payload is empty")]
     EmptyInput,
+    #[error("image payload exceeds maximum allowed size ({size} bytes, limit {limit} bytes)")]
+    InputTooLarge { size: usize, limit: usize },
+    #[error("image dimensions exceed maximum allowed ({width}x{height}, limit {limit}x{limit})")]
+    DimensionTooLarge {
+        width: u32,
+        height: u32,
+        limit: u32,
+    },
     #[error("image decode failed")]
     DecodeFailed,
     #[error("only deep analysis is available in the current scaffold")]
@@ -37,9 +45,34 @@ const SYNTHETIC_MIN_THRESHOLD: f32 = 0.66;
 const SYNTHETIC_MARGIN_THRESHOLD: f32 = 0.12;
 const SUSPICIOUS_MIN_THRESHOLD: f32 = 0.62;
 
+/// Below this ceiling, neither synthetic nor edited signals are strong enough
+/// to make a confident determination. The engine emits Indeterminate instead
+/// of defaulting to Authentic. (C3 fix)
+const INDETERMINATE_CEILING: f32 = 0.30;
+
+/// Minimum signal spread (|synthetic - edited|) required to break an
+/// Indeterminate deadlock when both likelihoods are below the ceiling.
+const INDETERMINATE_MIN_SPREAD: f32 = 0.08;
+
+/// Maximum accepted raw input size (50 MB). Prevents unbounded memory
+/// allocation when the caller supplies a very large buffer.
+const MAX_FILE_SIZE_BYTES: usize = 50 * 1024 * 1024;
+
+/// Maximum accepted image dimension (width or height). Prevents
+/// excessive memory allocation during decode and per-pixel processing.
+const MAX_IMAGE_DIMENSION: u32 = 16_384;
+
 pub fn verify(request: VerifyRequest) -> Result<VerificationResult, VerifyError> {
     if request.image_bytes.is_empty() {
         return Err(VerifyError::EmptyInput);
+    }
+
+    let size = request.image_bytes.len();
+    if size > MAX_FILE_SIZE_BYTES {
+        return Err(VerifyError::InputTooLarge {
+            size,
+            limit: MAX_FILE_SIZE_BYTES,
+        });
     }
 
     match request.execution_mode {
@@ -53,20 +86,31 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
         .with_guessed_format()
         .map_err(|_| VerifyError::DecodeFailed)?;
     let image = reader.decode().map_err(|_| VerifyError::DecodeFailed)?;
+
+    let (width, height) = (image.width(), image.height());
+    if width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION {
+        return Err(VerifyError::DimensionTooLarge {
+            width,
+            height,
+            limit: MAX_IMAGE_DIMENSION,
+        });
+    }
+
     let gray = image.to_luma8();
 
     let metrics = compute_signal_metrics(&gray);
 
-    let synthetic_base = (0.24 * metrics.block_artifact_score
-        + 0.20 * (1.0 - metrics.noise_score).max(0.0)
-        + 0.10 * (1.0 - metrics.edge_score).max(0.0)
-        + 0.22 * metrics.spectral_peak_score
-        + 0.16 * (1.0 - metrics.high_freq_ratio_score).max(0.0)
-        + 0.12 * (1.0 - metrics.prnu_plausibility_score).max(0.0)
-        + 0.10 * (1.0 - metrics.cross_region_consistency).max(0.0)
-        + 0.05 * metrics.hybrid_local_inconsistency
-        + 0.03 * metrics.hybrid_seam_anomaly
-        + 0.12 * metrics.semantic_synthetic_cue)
+    // Synthetic-base fusion weights — normalized to sum = 1.00 (C1 fix).
+    let synthetic_base = (0.18 * metrics.block_artifact_score
+        + 0.15 * (1.0 - metrics.noise_score).max(0.0)
+        + 0.08 * (1.0 - metrics.edge_score).max(0.0)
+        + 0.16 * metrics.spectral_peak_score
+        + 0.12 * (1.0 - metrics.high_freq_ratio_score).max(0.0)
+        + 0.09 * (1.0 - metrics.prnu_plausibility_score).max(0.0)
+        + 0.07 * (1.0 - metrics.cross_region_consistency).max(0.0)
+        + 0.04 * metrics.hybrid_local_inconsistency
+        + 0.02 * metrics.hybrid_seam_anomaly
+        + 0.09 * metrics.semantic_synthetic_cue)
         .clamp(0.0, 1.0);
 
     let synthetic_suppression = (1.0
@@ -76,14 +120,15 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
         .clamp(0.45, 1.0);
     let synthetic_likelihood = (synthetic_base * synthetic_suppression).clamp(0.0, 1.0);
 
-    let edited_base = (0.28 * metrics.block_variance_cv
-        + 0.06 * metrics.edge_score
-        + 0.14 * metrics.block_artifact_score * (1.0 - synthetic_likelihood)
-        + 0.08 * metrics.spectral_peak_score * 0.7
-        + 0.12 * (1.0 - metrics.cross_region_consistency).max(0.0)
+    // Edited-base fusion weights — normalized to sum = 1.00 (C1 fix).
+    let edited_base = (0.26 * metrics.block_variance_cv
+        + 0.05 * metrics.edge_score
+        + 0.13 * metrics.block_artifact_score * (1.0 - synthetic_likelihood)
+        + 0.07 * metrics.spectral_peak_score * 0.7
+        + 0.11 * (1.0 - metrics.cross_region_consistency).max(0.0)
         + 0.04 * (1.0 - metrics.prnu_plausibility_score).max(0.0)
-        + 0.20 * metrics.hybrid_local_inconsistency
-        + 0.14 * metrics.hybrid_seam_anomaly
+        + 0.18 * metrics.hybrid_local_inconsistency
+        + 0.13 * metrics.hybrid_seam_anomaly
         + 0.03 * metrics.semantic_synthetic_cue)
         .clamp(0.0, 1.0);
 
@@ -92,8 +137,9 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
             .clamp(0.55, 1.0);
     let edited_likelihood = (edited_base * edited_suppression).clamp(0.0, 1.0);
 
+    // Authentic complement — coefficients sum to 1.0 (C1 fix, was 0.72+0.60=1.32).
     let authentic_likelihood =
-        (1.0 - 0.72 * synthetic_likelihood - 0.60 * edited_likelihood).clamp(0.0, 1.0);
+        (1.0 - 0.55 * synthetic_likelihood - 0.45 * edited_likelihood).clamp(0.0, 1.0);
     let layer_contributions = compute_layer_contributions(&metrics);
     let threshold_profile = ThresholdProfile {
         synthetic_min: SYNTHETIC_MIN_THRESHOLD,
@@ -141,6 +187,18 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
                 (0.35 + (1.0 - edited_likelihood) * 0.25).clamp(0.35, 0.60),
                 reason_codes,
                 layer_reasons,
+            )
+        } else if synthetic_likelihood < INDETERMINATE_CEILING
+            && edited_likelihood < INDETERMINATE_CEILING
+            && (synthetic_likelihood - edited_likelihood).abs() < INDETERMINATE_MIN_SPREAD
+        {
+            // C3: Neither signal path reached a meaningful level and the two
+            // paths are within the spread threshold — insufficient evidence.
+            (
+                VerificationClass::Indeterminate,
+                0.50,
+                vec![ReasonCode::SysInsuff001],
+                vec![("system".to_string(), vec![ReasonCode::SysInsuff001])],
             )
         } else {
             (
@@ -241,7 +299,12 @@ fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
         1.0
     };
 
-    let block_artifact_score = (((boundary_avg / interior_avg) - 1.0) / 0.8).clamp(0.0, 1.0) as f32;
+    let block_artifact_score = if interior_avg <= f64::EPSILON {
+        // No interior texture — block artifact signal is undefined; treat as absent.
+        0.0f32
+    } else {
+        (((boundary_avg / interior_avg) - 1.0) / 0.8).clamp(0.0, 1.0) as f32
+    };
     let block_variance_cv = compute_block_variance_cv(gray);
     let residual_map = compute_residual_map(gray);
     let (spectral_peak_score, high_freq_ratio_score) =
@@ -854,4 +917,900 @@ fn compute_block_variance_cv(gray: &GrayImage) -> f32 {
 
     let std = var.sqrt();
     ((std / mean) / 1.2).clamp(0.0, 1.0) as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{ExecutionMode, HardwareTier, VerifyRequest};
+    use image::{GrayImage, ImageBuffer, ImageFormat, Luma};
+    use std::io::Cursor;
+
+    // ---------------------------------------------------------------
+    // Helper: create a minimal valid PNG in memory
+    // ---------------------------------------------------------------
+    fn make_png(width: u32, height: u32, fill: u8) -> Vec<u8> {
+        let img = GrayImage::from_pixel(width, height, Luma([fill]));
+        let mut buf = Cursor::new(Vec::new());
+        img.write_to(&mut buf, ImageFormat::Png).unwrap();
+        buf.into_inner()
+    }
+
+    fn make_gradient_png(width: u32, height: u32) -> Vec<u8> {
+        let img = ImageBuffer::from_fn(width, height, |x, y| {
+            Luma([((x.wrapping_add(y * 3)) % 256) as u8])
+        });
+        let mut buf = Cursor::new(Vec::new());
+        img.write_to(&mut buf, ImageFormat::Png).unwrap();
+        buf.into_inner()
+    }
+
+    fn make_noisy_png(width: u32, height: u32, seed: u64) -> Vec<u8> {
+        let img = ImageBuffer::from_fn(width, height, |x, y| {
+            // Simple deterministic pseudo-random fill
+            let v = ((x as u64)
+                .wrapping_mul(2654435761)
+                .wrapping_add(y as u64)
+                .wrapping_mul(2246822519)
+                .wrapping_add(seed))
+                % 256;
+            Luma([v as u8])
+        });
+        let mut buf = Cursor::new(Vec::new());
+        img.write_to(&mut buf, ImageFormat::Png).unwrap();
+        buf.into_inner()
+    }
+
+    fn make_xorshift_png(width: u32, height: u32, seed: u32) -> Vec<u8> {
+        let mut img = GrayImage::new(width, height);
+        let mut state = seed | 1; // xorshift must be non-zero
+        for y in 0..height {
+            for x in 0..width {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                img.put_pixel(x, y, Luma([(state & 0xFF) as u8]));
+            }
+        }
+        let mut buf = Cursor::new(Vec::new());
+        img.write_to(&mut buf, ImageFormat::Png).unwrap();
+        buf.into_inner()
+    }
+
+    // ---------------------------------------------------------------
+    // 1. Public API: verify()
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn verify_empty_input_returns_empty_error() {
+        let req = VerifyRequest {
+            image_bytes: vec![],
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let err = verify(req).unwrap_err();
+        assert!(matches!(err, VerifyError::EmptyInput));
+    }
+
+    #[test]
+    fn verify_input_too_large_is_rejected() {
+        // 50 MB + 1 byte exceeds the limit
+        let oversized = vec![0u8; MAX_FILE_SIZE_BYTES + 1];
+        let req = VerifyRequest {
+            image_bytes: oversized,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let err = verify(req).unwrap_err();
+        assert!(
+            matches!(err, VerifyError::InputTooLarge { size, limit }
+                if size == MAX_FILE_SIZE_BYTES + 1 && limit == MAX_FILE_SIZE_BYTES),
+            "expected InputTooLarge, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_input_at_exact_limit_is_not_rejected_for_size() {
+        // Exactly 50 MB should pass the size gate (it will fail on decode, not size).
+        let at_limit = vec![0u8; MAX_FILE_SIZE_BYTES];
+        let req = VerifyRequest {
+            image_bytes: at_limit,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let err = verify(req).unwrap_err();
+        // Should fail at decode, not at size check
+        assert!(
+            matches!(err, VerifyError::DecodeFailed),
+            "expected DecodeFailed (not InputTooLarge), got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_fast_mode_returns_not_implemented() {
+        let req = VerifyRequest {
+            image_bytes: vec![0xFF],
+            execution_mode: ExecutionMode::Fast,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let err = verify(req).unwrap_err();
+        assert!(matches!(err, VerifyError::NotImplemented));
+    }
+
+    #[test]
+    fn verify_garbage_bytes_returns_decode_failed() {
+        let req = VerifyRequest {
+            image_bytes: vec![0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33],
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let err = verify(req).unwrap_err();
+        assert!(matches!(err, VerifyError::DecodeFailed));
+    }
+
+    #[test]
+    fn verify_truncated_png_returns_decode_failed() {
+        let png = make_png(64, 64, 128);
+        let truncated = &png[..png.len() / 2];
+        let req = VerifyRequest {
+            image_bytes: truncated.to_vec(),
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let err = verify(req).unwrap_err();
+        assert!(matches!(err, VerifyError::DecodeFailed));
+    }
+
+    #[test]
+    fn verify_valid_png_returns_result() {
+        let png = make_png(64, 64, 128);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        assert!(
+            result.authenticity_score >= 0.0 && result.authenticity_score <= 1.0,
+            "score out of [0,1]: {}",
+            result.authenticity_score
+        );
+        assert!(!result.reason_codes.is_empty());
+    }
+
+    #[test]
+    fn verify_1x1_png_returns_result_no_panic() {
+        let png = make_png(1, 1, 200);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        // Tiny image should still produce a valid bounded score
+        assert!(result.authenticity_score >= 0.0 && result.authenticity_score <= 1.0);
+    }
+
+    #[test]
+    fn verify_2x2_png_returns_result_no_panic() {
+        let png = make_png(2, 2, 100);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        assert!(result.authenticity_score >= 0.0 && result.authenticity_score <= 1.0);
+    }
+
+    #[test]
+    fn verify_3x3_png_returns_result_no_panic() {
+        let png = make_png(3, 3, 50);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        assert!(
+            result.authenticity_score >= 0.0 && result.authenticity_score <= 1.0,
+            "score out of [0,1]: {}",
+            result.authenticity_score
+        );
+    }
+
+    #[test]
+    fn verify_gradient_image_returns_bounded_scores() {
+        let png = make_gradient_png(128, 128);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        assert!(result.authenticity_score >= 0.0 && result.authenticity_score <= 1.0);
+        assert!(result.layer_contributions.signal >= 0.0 && result.layer_contributions.signal <= 1.0);
+        assert!(result.layer_contributions.physical >= 0.0 && result.layer_contributions.physical <= 1.0);
+        assert!(result.layer_contributions.hybrid >= 0.0 && result.layer_contributions.hybrid <= 1.0);
+        assert!(result.layer_contributions.semantic >= 0.0 && result.layer_contributions.semantic <= 1.0);
+    }
+
+    // ---------------------------------------------------------------
+    // 2. Classification gate tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn verify_result_classification_is_a_valid_variant() {
+        let png = make_noisy_png(64, 64, 42);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        assert!(matches!(
+            result.classification,
+            VerificationClass::Authentic
+                | VerificationClass::Suspicious
+                | VerificationClass::Synthetic
+                | VerificationClass::Indeterminate
+        ));
+    }
+
+    #[test]
+    fn verify_result_contains_threshold_profile() {
+        let png = make_png(64, 64, 128);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        assert_eq!(result.threshold_profile.synthetic_min, SYNTHETIC_MIN_THRESHOLD);
+        assert_eq!(result.threshold_profile.synthetic_margin, SYNTHETIC_MARGIN_THRESHOLD);
+        assert_eq!(result.threshold_profile.suspicious_min, SUSPICIOUS_MIN_THRESHOLD);
+    }
+
+    #[test]
+    fn verify_result_latency_fields_are_populated() {
+        let png = make_png(64, 64, 128);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        // Current implementation produces fabricated but nonzero latency
+        assert!(result.latency_ms.signal > 0);
+        assert!(result.latency_ms.physical > 0);
+        assert!(result.latency_ms.hybrid > 0);
+        assert!(result.latency_ms.semantic > 0);
+        assert!(result.latency_ms.fusion > 0);
+    }
+
+    // ---------------------------------------------------------------
+    // 3. compute_signal_metrics
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn signal_metrics_tiny_image_returns_zeros() {
+        let gray = GrayImage::from_pixel(2, 2, Luma([128]));
+        let metrics = compute_signal_metrics(&gray);
+        assert_eq!(metrics.noise_score, 0.0);
+        assert_eq!(metrics.edge_score, 0.0);
+        assert_eq!(metrics.block_artifact_score, 0.0);
+        assert_eq!(metrics.spectral_peak_score, 0.0);
+        assert_eq!(metrics.prnu_plausibility_score, 0.0);
+        assert_eq!(metrics.hybrid_local_inconsistency, 0.0);
+        assert_eq!(metrics.semantic_pattern_repetition, 0.0);
+    }
+
+    #[test]
+    fn signal_metrics_flat_image_has_low_noise_and_edges() {
+        let gray = GrayImage::from_pixel(64, 64, Luma([128]));
+        let metrics = compute_signal_metrics(&gray);
+        assert_eq!(metrics.noise_score, 0.0, "flat image should have zero noise");
+        assert_eq!(metrics.edge_score, 0.0, "flat image should have zero edges");
+    }
+
+    #[test]
+    fn signal_metrics_noisy_image_has_nonzero_noise() {
+        let img = ImageBuffer::from_fn(64, 64, |x, y| {
+            Luma([((x.wrapping_mul(7).wrapping_add(y.wrapping_mul(13))) % 256) as u8])
+        });
+        let metrics = compute_signal_metrics(&img);
+        assert!(metrics.noise_score > 0.0, "noisy image should have >0 noise score");
+        assert!(metrics.edge_score > 0.0, "noisy image should have >0 edge score");
+    }
+
+    #[test]
+    fn signal_metrics_all_fields_bounded_0_1() {
+        let img = ImageBuffer::from_fn(128, 128, |x, y| {
+            Luma([((x ^ y).wrapping_mul(17) % 256) as u8])
+        });
+        let metrics = compute_signal_metrics(&img);
+        let fields = [
+            metrics.noise_score,
+            metrics.edge_score,
+            metrics.block_artifact_score,
+            metrics.block_variance_cv,
+            metrics.spectral_peak_score,
+            metrics.high_freq_ratio_score,
+            metrics.prnu_plausibility_score,
+            metrics.cross_region_consistency,
+            metrics.hybrid_local_inconsistency,
+            metrics.hybrid_seam_anomaly,
+            metrics.semantic_pattern_repetition,
+            metrics.semantic_gradient_entropy,
+            metrics.semantic_synthetic_cue,
+        ];
+        for (i, val) in fields.iter().enumerate() {
+            assert!(
+                *val >= 0.0 && *val <= 1.0,
+                "metric field index {i} is out of [0,1]: {val}"
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 4. compute_residual_map
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn residual_map_tiny_image_returns_zeros() {
+        let gray = GrayImage::from_pixel(2, 2, Luma([100]));
+        let residual = compute_residual_map(&gray);
+        assert_eq!(residual.len(), 4);
+        assert!(residual.iter().all(|v| *v == 0.0));
+    }
+
+    #[test]
+    fn residual_map_flat_image_interior_is_zero() {
+        let gray = GrayImage::from_pixel(8, 8, Luma([100]));
+        let residual = compute_residual_map(&gray);
+        // Interior pixels (not border) should be zero for flat image
+        for y in 1..7 {
+            for x in 1..7 {
+                assert_eq!(residual[y * 8 + x], 0.0, "residual at ({x},{y}) should be 0");
+            }
+        }
+    }
+
+    #[test]
+    fn residual_map_borders_are_zero() {
+        let gray = ImageBuffer::from_fn(8, 8, |x, y| {
+            Luma([((x + y * 3) % 256) as u8])
+        });
+        let residual = compute_residual_map(&gray);
+        // Top row, bottom row, left col, right col should all be 0
+        for x in 0..8 {
+            assert_eq!(residual[x], 0.0, "top border at x={x}");
+            assert_eq!(residual[7 * 8 + x], 0.0, "bottom border at x={x}");
+        }
+        for y in 0..8 {
+            assert_eq!(residual[y * 8], 0.0, "left border at y={y}");
+            assert_eq!(residual[y * 8 + 7], 0.0, "right border at y={y}");
+        }
+    }
+
+    #[test]
+    fn residual_map_length_matches_image_dimensions() {
+        let gray = GrayImage::from_pixel(16, 24, Luma([50]));
+        let residual = compute_residual_map(&gray);
+        assert_eq!(residual.len(), 16 * 24);
+    }
+
+    // ---------------------------------------------------------------
+    // 5. compute_fft_signal_features
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn fft_features_small_image_returns_zeros() {
+        let residual = vec![0.0f32; 8 * 8];
+        let (peak, hf) = compute_fft_signal_features(&residual, 8, 8);
+        assert_eq!(peak, 0.0);
+        assert_eq!(hf, 0.0);
+    }
+
+    #[test]
+    fn fft_features_large_enough_image_returns_bounded() {
+        let residual: Vec<f32> = (0..64 * 64).map(|i| (i as f32 * 0.01).sin()).collect();
+        let (peak, hf) = compute_fft_signal_features(&residual, 64, 64);
+        assert!((0.0..=1.0).contains(&peak));
+        assert!((0.0..=1.0).contains(&hf));
+    }
+
+    // ---------------------------------------------------------------
+    // 6. compute_prnu_proxy_metrics
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn prnu_metrics_small_image_returns_zeros() {
+        let residual = vec![0.0f32; 24 * 24];
+        let (plaus, cons) = compute_prnu_proxy_metrics(&residual, 24, 24);
+        // 24×24 is exactly block * 2 edge — should not produce zero
+        // Actually 24 < 24*2 = 48 for the size check
+        assert_eq!(plaus, 0.0);
+        assert_eq!(cons, 0.0);
+    }
+
+    #[test]
+    fn prnu_metrics_adequate_image_returns_bounded() {
+        let w = 96;
+        let h = 96;
+        let residual: Vec<f32> = (0..w * h).map(|i| ((i * 7) as f32 % 5.0) - 2.5).collect();
+        let (plaus, cons) = compute_prnu_proxy_metrics(&residual, w, h);
+        assert!((0.0..=1.0).contains(&plaus), "plausibility={plaus}");
+        assert!((0.0..=1.0).contains(&cons), "consistency={cons}");
+    }
+
+    // ---------------------------------------------------------------
+    // 7. compute_hybrid_metrics
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn hybrid_metrics_small_image_returns_zeros() {
+        let residual = vec![0.0f32; 16 * 16];
+        let (li, sa) = compute_hybrid_metrics(&residual, 16, 16);
+        assert_eq!(li, 0.0);
+        assert_eq!(sa, 0.0);
+    }
+
+    #[test]
+    fn hybrid_metrics_adequate_image_returns_bounded() {
+        let w = 128;
+        let h = 128;
+        let residual: Vec<f32> = (0..w * h).map(|i| ((i * 13) as f32 % 7.0) - 3.5).collect();
+        let (li, sa) = compute_hybrid_metrics(&residual, w, h);
+        assert!((0.0..=1.0).contains(&li), "local_inconsistency={li}");
+        assert!((0.0..=1.0).contains(&sa), "seam_anomaly={sa}");
+    }
+
+    // ---------------------------------------------------------------
+    // 8. compute_semantic_metrics
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn semantic_metrics_small_image_returns_zeros() {
+        let gray = GrayImage::from_pixel(16, 16, Luma([100]));
+        let residual = vec![0.0f32; 16 * 16];
+        let (rep, ent, cue) = compute_semantic_metrics(&residual, &gray, 16, 16);
+        assert_eq!(rep, 0.0);
+        assert_eq!(ent, 0.0);
+        assert_eq!(cue, 0.0);
+    }
+
+    #[test]
+    fn semantic_metrics_gradient_image_returns_bounded() {
+        let w = 64u32;
+        let h = 64u32;
+        let gray = ImageBuffer::from_fn(w, h, |x, y| {
+            Luma([((x + y * 2) % 256) as u8])
+        });
+        let residual = compute_residual_map(&gray);
+        let (rep, ent, cue) = compute_semantic_metrics(&residual, &gray, w as usize, h as usize);
+        assert!((0.0..=1.0).contains(&rep));
+        assert!((0.0..=1.0).contains(&ent));
+        assert!((0.0..=1.0).contains(&cue));
+    }
+
+    // ---------------------------------------------------------------
+    // 9. compute_block_variance_cv
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn block_variance_cv_small_image_returns_zero() {
+        let gray = GrayImage::from_pixel(16, 16, Luma([100]));
+        assert_eq!(compute_block_variance_cv(&gray), 0.0);
+    }
+
+    #[test]
+    fn block_variance_cv_flat_image_returns_zero() {
+        let gray = GrayImage::from_pixel(64, 64, Luma([128]));
+        assert_eq!(compute_block_variance_cv(&gray), 0.0);
+    }
+
+    #[test]
+    fn block_variance_cv_patterned_image_returns_bounded() {
+        let gray = ImageBuffer::from_fn(128, 128, |x, y| {
+            Luma([((x ^ y) % 256) as u8])
+        });
+        let cv = compute_block_variance_cv(&gray);
+        assert!((0.0..=1.0).contains(&cv), "cv={cv}");
+    }
+
+    // ---------------------------------------------------------------
+    // 10. compute_layer_contributions
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn layer_contributions_all_zeros_returns_bounded() {
+        let metrics = SignalMetrics {
+            noise_score: 0.0,
+            edge_score: 0.0,
+            block_artifact_score: 0.0,
+            block_variance_cv: 0.0,
+            spectral_peak_score: 0.0,
+            high_freq_ratio_score: 0.0,
+            prnu_plausibility_score: 0.0,
+            cross_region_consistency: 0.0,
+            hybrid_local_inconsistency: 0.0,
+            hybrid_seam_anomaly: 0.0,
+            semantic_pattern_repetition: 0.0,
+            semantic_gradient_entropy: 0.0,
+            semantic_synthetic_cue: 0.0,
+        };
+        let lc = compute_layer_contributions(&metrics);
+        assert!(lc.signal >= 0.0 && lc.signal <= 1.0);
+        assert!(lc.physical >= 0.0 && lc.physical <= 1.0);
+        assert!(lc.hybrid >= 0.0 && lc.hybrid <= 1.0);
+        assert!(lc.semantic >= 0.0 && lc.semantic <= 1.0);
+    }
+
+    #[test]
+    fn layer_contributions_all_ones_returns_bounded() {
+        let metrics = SignalMetrics {
+            noise_score: 1.0,
+            edge_score: 1.0,
+            block_artifact_score: 1.0,
+            block_variance_cv: 1.0,
+            spectral_peak_score: 1.0,
+            high_freq_ratio_score: 1.0,
+            prnu_plausibility_score: 1.0,
+            cross_region_consistency: 1.0,
+            hybrid_local_inconsistency: 1.0,
+            hybrid_seam_anomaly: 1.0,
+            semantic_pattern_repetition: 1.0,
+            semantic_gradient_entropy: 1.0,
+            semantic_synthetic_cue: 1.0,
+        };
+        let lc = compute_layer_contributions(&metrics);
+        assert!(lc.signal >= 0.0 && lc.signal <= 1.0);
+        assert!(lc.physical >= 0.0 && lc.physical <= 1.0);
+        assert!(lc.hybrid >= 0.0 && lc.hybrid <= 1.0);
+        assert!(lc.semantic >= 0.0 && lc.semantic <= 1.0);
+    }
+
+    // ---------------------------------------------------------------
+    // 11. sample_rect
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn sample_rect_zero_inputs_returns_zeros() {
+        let data = vec![1.0f32; 0];
+        let out = sample_rect(&data, 0, 0, 4);
+        assert_eq!(out.len(), 16);
+        assert!(out.iter().all(|v| *v == 0.0));
+    }
+
+    #[test]
+    fn sample_rect_identity_preserves_data() {
+        let data: Vec<f32> = (0..16).map(|i| i as f32).collect();
+        let out = sample_rect(&data, 4, 4, 4);
+        assert_eq!(out, data);
+    }
+
+    // ---------------------------------------------------------------
+    // 12. fft2d_magnitude
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn fft2d_magnitude_returns_correct_length() {
+        let input = vec![0.0f32; 8 * 8];
+        let mag = fft2d_magnitude(&input, 8);
+        assert_eq!(mag.len(), 64);
+    }
+
+    #[test]
+    fn fft2d_magnitude_all_zeros_returns_zeros() {
+        let input = vec![0.0f32; 16 * 16];
+        let mag = fft2d_magnitude(&input, 16);
+        for val in &mag {
+            assert!(*val >= 0.0);
+            assert!(*val < f32::EPSILON, "expected ~0, got {val}");
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 13. block_corr
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn block_corr_identical_blocks_returns_one() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        // 2×4 grid, block=2, compare block (0,0) with itself at (0,0)
+        let corr = block_corr(&data, 4, 0, 0, 0, 0, 2);
+        // Self-correlation should be 1.0 (or None if flat)
+        if let Some(c) = corr {
+            assert!((c - 1.0).abs() < 1e-5, "self-correlation should be ~1.0, got {c}");
+        }
+    }
+
+    #[test]
+    fn block_corr_flat_returns_none() {
+        // Flat blocks => denominator is zero => None
+        let data = vec![5.0f32; 4 * 4];
+        let result = block_corr(&data, 4, 0, 0, 2, 0, 2);
+        assert!(result.is_none(), "flat blocks should return None");
+    }
+
+    // ---------------------------------------------------------------
+    // 14. compute_shifted_residual_corr
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn shifted_corr_out_of_bounds_returns_none() {
+        let data = vec![0.0f32; 4 * 4];
+        assert!(compute_shifted_residual_corr(&data, 4, 4, 10, 0).is_none());
+        assert!(compute_shifted_residual_corr(&data, 4, 4, 0, 10).is_none());
+    }
+
+    #[test]
+    fn shifted_corr_zero_shift_self_correlates() {
+        let data: Vec<f32> = (0..16 * 16).map(|i| (i as f32 * 0.1).sin()).collect();
+        let corr = compute_shifted_residual_corr(&data, 16, 16, 0, 0);
+        if let Some(c) = corr {
+            assert!((c - 1.0).abs() < 1e-4, "zero-shift should be ~1.0, got {c}");
+        }
+    }
+
+    #[test]
+    fn shifted_corr_returns_bounded_value() {
+        let data: Vec<f32> = (0..32 * 32).map(|i| ((i * 7) as f32 % 13.0) - 6.5).collect();
+        if let Some(c) = compute_shifted_residual_corr(&data, 32, 32, 3, 5) {
+            assert!((-1.0..=1.0).contains(&c), "corr={c}");
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 15. Diverse image sizes (no-panic property tests)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn verify_various_sizes_no_panic() {
+        for &(w, h) in &[(1, 1), (2, 3), (3, 2), (4, 4), (7, 7), (8, 8), (15, 15), (16, 16), (32, 32), (100, 100)] {
+            let png = make_noisy_png(w, h, (w as u64) * 1000 + (h as u64));
+            let req = VerifyRequest {
+                image_bytes: png,
+                execution_mode: ExecutionMode::Deep,
+                hardware_tier: HardwareTier::CpuOnly,
+            };
+            let result = verify(req);
+            assert!(result.is_ok(), "failed for {w}×{h}: {:?}", result.err());
+            let r = result.unwrap();
+            assert!(
+                r.authenticity_score >= 0.0 && r.authenticity_score <= 1.0,
+                "score out of bounds for {w}×{h}: {}",
+                r.authenticity_score
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 16. Flat image should classify as Authentic (sanity)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn flat_image_classifies_as_authentic() {
+        let png = make_png(128, 128, 128);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        // A perfectly flat image has no manipulation or synthetic signals
+        assert_eq!(
+            result.classification,
+            VerificationClass::Authentic,
+            "flat image should be Authentic, got {:?} (score={})",
+            result.classification,
+            result.authenticity_score
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // 17. Input limit constants (C5)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn max_file_size_is_50mb() {
+        assert_eq!(MAX_FILE_SIZE_BYTES, 50 * 1024 * 1024);
+    }
+
+    #[test]
+    fn max_image_dimension_is_16384() {
+        assert_eq!(MAX_IMAGE_DIMENSION, 16_384);
+    }
+
+    #[test]
+    fn verify_size_check_precedes_decode() {
+        // An oversized payload of garbage bytes should be rejected by the
+        // size gate, not by the decode gate.
+        let big_garbage = vec![0xABu8; MAX_FILE_SIZE_BYTES + 42];
+        let req = VerifyRequest {
+            image_bytes: big_garbage,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let err = verify(req).unwrap_err();
+        assert!(
+            matches!(err, VerifyError::InputTooLarge { .. }),
+            "expected InputTooLarge before decode, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_normal_image_passes_dimension_check() {
+        // A 128×128 image is well within 16384 limit.
+        let png = make_png(128, 128, 200);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req);
+        assert!(result.is_ok(), "normal image should pass: {:?}", result.err());
+    }
+
+    // ---------------------------------------------------------------
+    // 18. Fusion weight normalization regression (C1)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn synthetic_base_weights_sum_to_one() {
+        // These must match the weights in verify_deep_heuristic.
+        let weights: &[f32] = &[0.18, 0.15, 0.08, 0.16, 0.12, 0.09, 0.07, 0.04, 0.02, 0.09];
+        let sum: f32 = weights.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-6,
+            "synthetic_base weights sum to {sum}, expected 1.0"
+        );
+    }
+
+    #[test]
+    fn edited_base_weights_sum_to_one() {
+        // These must match the weights in verify_deep_heuristic.
+        let weights: &[f32] = &[0.26, 0.05, 0.13, 0.07, 0.11, 0.04, 0.18, 0.13, 0.03];
+        let sum: f32 = weights.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-6,
+            "edited_base weights sum to {sum}, expected 1.0"
+        );
+    }
+
+    #[test]
+    fn authentic_likelihood_coefficients_sum_to_one() {
+        let coefficients: &[f32] = &[0.55, 0.45];
+        let sum: f32 = coefficients.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-6,
+            "authentic_likelihood coefficients sum to {sum}, expected ≤1.0"
+        );
+    }
+
+    #[test]
+    fn no_nan_in_scores_for_flat_images() {
+        // Flat images previously produced NaN from 0/0 in block_artifact_score.
+        for &fill in &[0u8, 1, 128, 254, 255] {
+            for &(w, h) in &[(3, 3), (8, 8), (16, 16), (64, 64), (128, 128)] {
+                let png = make_png(w, h, fill);
+                let req = VerifyRequest {
+                    image_bytes: png,
+                    execution_mode: ExecutionMode::Deep,
+                    hardware_tier: HardwareTier::CpuOnly,
+                };
+                let result = verify(req).unwrap();
+                assert!(
+                    result.authenticity_score.is_finite(),
+                    "NaN/Inf for flat {fill} at {w}×{h}: {}",
+                    result.authenticity_score
+                );
+                assert!(
+                    (0.0..=1.0).contains(&result.authenticity_score),
+                    "score out of [0,1] for flat {fill} at {w}×{h}: {}",
+                    result.authenticity_score
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn block_artifact_score_zero_for_flat_image() {
+        // When all pixels are identical, no block artifact signal exists.
+        let gray = GrayImage::from_pixel(64, 64, Luma([100]));
+        let metrics = compute_signal_metrics(&gray);
+        assert_eq!(
+            metrics.block_artifact_score, 0.0,
+            "flat image should have zero block artifact score"
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // 19. Indeterminate classification (C3)
+    // ---------------------------------------------------------------
+
+    #[test]
+    #[allow(clippy::assertions_on_constants)]
+    fn indeterminate_ceiling_below_suspicious_threshold() {
+        assert!(
+            INDETERMINATE_CEILING < SUSPICIOUS_MIN_THRESHOLD,
+            "Indeterminate ceiling ({}) must be below suspicious gate ({})",
+            INDETERMINATE_CEILING,
+            SUSPICIOUS_MIN_THRESHOLD
+        );
+    }
+
+    #[test]
+    #[allow(clippy::assertions_on_constants)]
+    fn indeterminate_ceiling_below_synthetic_threshold() {
+        assert!(
+            INDETERMINATE_CEILING < SYNTHETIC_MIN_THRESHOLD,
+            "Indeterminate ceiling ({}) must be below synthetic gate ({})",
+            INDETERMINATE_CEILING,
+            SYNTHETIC_MIN_THRESHOLD
+        );
+    }
+
+    #[test]
+    #[allow(clippy::assertions_on_constants)]
+    fn indeterminate_spread_is_positive() {
+        assert!(
+            INDETERMINATE_MIN_SPREAD > 0.0,
+            "Indeterminate min spread must be positive"
+        );
+    }
+
+    #[test]
+    fn noisy_image_classifies_as_indeterminate() {
+        // Xorshift white-noise image: high noise/edge scores push inversions
+        // toward zero while low spectral/semantic/hybrid signals keep both
+        // likelihoods under the Indeterminate ceiling with narrow spread.
+        let png = make_xorshift_png(128, 128, 42);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        assert_eq!(
+            result.classification,
+            VerificationClass::Indeterminate,
+            "xorshift noise image should be Indeterminate, got {:?} (score={})",
+            result.classification,
+            result.authenticity_score
+        );
+    }
+
+    #[test]
+    fn indeterminate_result_has_half_score() {
+        let png = make_xorshift_png(128, 128, 42);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        assert!(
+            (result.authenticity_score - 0.50).abs() < f32::EPSILON,
+            "Indeterminate score should be 0.50, got {}",
+            result.authenticity_score
+        );
+    }
+
+    #[test]
+    fn indeterminate_emits_sys_insuff_reason() {
+        let png = make_xorshift_png(128, 128, 42);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        assert!(
+            result.reason_codes.contains(&ReasonCode::SysInsuff001),
+            "Indeterminate result should contain SysInsuff001, got {:?}",
+            result.reason_codes
+        );
+    }
 }

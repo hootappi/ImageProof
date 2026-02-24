@@ -378,3 +378,134 @@ fn derive_perturbation_tags(path: &Path) -> Vec<String> {
 
     tags
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---------------------------------------------------------------
+    // is_supported_image
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn supported_image_jpg() {
+        assert!(is_supported_image(Path::new("photo.jpg")));
+    }
+
+    #[test]
+    fn supported_image_jpeg_uppercase() {
+        assert!(is_supported_image(Path::new("photo.JPEG")));
+    }
+
+    #[test]
+    fn supported_image_png() {
+        assert!(is_supported_image(Path::new("image.png")));
+    }
+
+    #[test]
+    fn supported_image_webp() {
+        assert!(is_supported_image(Path::new("image.webp")));
+    }
+
+    #[test]
+    fn unsupported_image_bmp() {
+        assert!(!is_supported_image(Path::new("image.bmp")));
+    }
+
+    #[test]
+    fn unsupported_image_gif() {
+        assert!(!is_supported_image(Path::new("animation.gif")));
+    }
+
+    #[test]
+    fn unsupported_image_no_extension() {
+        assert!(!is_supported_image(Path::new("README")));
+    }
+
+    // ---------------------------------------------------------------
+    // derive_perturbation_tags (known issue H5: currently matches
+    // file extensions, so .jpg gets "jpeg" tag — this test documents
+    // the current behavior as a baseline before the H5 fix)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn perturbation_tag_recompressed_in_name() {
+        let tags = derive_perturbation_tags(Path::new("photo_recompressed.png"));
+        assert!(tags.contains(&"recompressed".to_string()));
+    }
+
+    #[test]
+    fn perturbation_tag_resized_in_name() {
+        let tags = derive_perturbation_tags(Path::new("photo_resized_50pct.jpg"));
+        assert!(tags.contains(&"resized".to_string()));
+    }
+
+    #[test]
+    fn perturbation_tag_cropped_in_name() {
+        let tags = derive_perturbation_tags(Path::new("photo_cropped.png"));
+        assert!(tags.contains(&"cropped".to_string()));
+    }
+
+    #[test]
+    fn perturbation_tag_lowlight_in_name() {
+        let tags = derive_perturbation_tags(Path::new("scene_night_01.jpg"));
+        assert!(tags.contains(&"lowlight".to_string()));
+    }
+
+    #[test]
+    fn perturbation_tag_no_false_tags_on_clean_name() {
+        let tags = derive_perturbation_tags(Path::new("clean_photo.png"));
+        assert!(tags.is_empty(), "expected no tags, got: {tags:?}");
+    }
+
+    // ---------------------------------------------------------------
+    // GroupStats
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn group_stats_record_correct_match() {
+        let mut stats = GroupStats::default();
+        stats.record(ExpectedClass::Authentic, VerificationClass::Authentic);
+        assert_eq!(stats.total, 1);
+        assert_eq!(stats.matched, 1);
+        assert_eq!(stats.as_authentic, 1);
+    }
+
+    #[test]
+    fn group_stats_record_mismatch() {
+        let mut stats = GroupStats::default();
+        stats.record(ExpectedClass::Authentic, VerificationClass::Suspicious);
+        assert_eq!(stats.total, 1);
+        assert_eq!(stats.matched, 0);
+        assert_eq!(stats.as_suspicious, 1);
+    }
+
+    #[test]
+    fn group_stats_accuracy_calculation() {
+        let mut stats = GroupStats::default();
+        stats.record(ExpectedClass::Synthetic, VerificationClass::Synthetic);
+        stats.record(ExpectedClass::Synthetic, VerificationClass::Authentic);
+        stats.record(ExpectedClass::Synthetic, VerificationClass::Synthetic);
+        stats.record(ExpectedClass::Synthetic, VerificationClass::Suspicious);
+        assert_eq!(stats.total, 4);
+        assert_eq!(stats.matched, 2);
+        assert!((stats.accuracy() - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn group_stats_empty_accuracy_is_zero() {
+        let stats = GroupStats::default();
+        assert_eq!(stats.accuracy(), 0.0);
+    }
+
+    #[test]
+    fn group_stats_indeterminate_not_counted_as_match() {
+        let mut stats = GroupStats::default();
+        stats.record(ExpectedClass::Authentic, VerificationClass::Indeterminate);
+        assert_eq!(stats.total, 1);
+        assert_eq!(stats.matched, 0);
+        assert_eq!(stats.as_authentic, 0);
+        assert_eq!(stats.as_suspicious, 0);
+        assert_eq!(stats.as_synthetic, 0);
+    }
+}

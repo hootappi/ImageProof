@@ -179,6 +179,39 @@ Starting workspace setup for ImageProof application.
 - Added thresholds for authentic false positives (`<=1%`) and edited/synthetic miss rates (`<=10%`).
 - Added minimum sample-size requirement (`>=25` per class) with explicit failure notes.
 
+### Automated Test Suite — C4 (2026-02-24)
+- Added 44 unit tests in `imageproof-core` covering every metric function and public API path.
+- Added 17 unit tests in `imageproof-cli` covering `is_supported_image`, `derive_perturbation_tags`, `GroupStats`, and acceptance quality functions.
+- 2 tests marked `#[ignore]` pending C1 fix (fusion produces NaN on flat/tiny images).
+- Created GitHub Actions CI workflow (`.github/workflows/ci.yml`) with `cargo test`, `clippy -D warnings`, and `npm run check`.
+
+### WASM Panic Hook — H7 (2026-02-24)
+- Added `console_error_panic_hook` v0.1 dependency to `crates/wasm-bindings`.
+- Added `#[wasm_bindgen(start)] fn init()` that installs the panic hook once on WASM module load.
+- Rust panics now surface full error messages in browser DevTools console instead of opaque WASM traps.
+
+### Input Size and Dimension Limits — C5 (2026-02-24)
+- Added `MAX_FILE_SIZE_BYTES` (50 MB) pre-decode check and `MAX_IMAGE_DIMENSION` (16384) post-decode check.
+- Added `InputTooLarge` and `DimensionTooLarge` error variants to `VerifyError` with descriptive messages.
+- Both limits enforced in core `verify()` and inherited by WASM bindings without WASM-specific changes.
+- Added 6 new unit tests covering exact boundary, over-limit, and ordering verification.
+
+### Fusion Weight Normalization — C1 (2026-02-24)
+- Normalized `synthetic_base` weights from sum 1.34 to 1.00 (preserving relative proportions).
+- Normalized `edited_base` weights from sum 1.09 to 1.00.
+- Normalized `authentic_likelihood` coefficients from sum 1.32 to 1.00.
+- Fixed `0/0` NaN in `block_artifact_score` when both `boundary_avg` and `interior_avg` are zero (flat images).
+- Un-ignored 2 blocked tests (`verify_valid_png_returns_result`, `verify_3x3_png_returns_result_no_panic`).
+- Added 5 regression tests: weight sum verification (3), NaN-free property (1), flat block artifact (1).
+
+### Indeterminate Classification — C3 (2026-02-24)
+- Added `INDETERMINATE_CEILING` (0.30) and `INDETERMINATE_MIN_SPREAD` (0.08) classification constants.
+- Added Indeterminate branch in Deep classification: fires when both `synthetic_likelihood` and `edited_likelihood` are below the ceiling and their spread is below the minimum, emitting score 0.50 and reason code `SysInsuff001`.
+- Classification is now quad-state: Synthetic → Suspicious → Indeterminate → Authentic.
+- Added `make_xorshift_png` test helper (xorshift32 PRNG for flat-spectrum white noise).
+- Added 6 C3 unit tests: 3 constant-consistency checks, 1 integration (xorshift noise → Indeterminate), 1 score (0.50), 1 reason code (SysInsuff001).
+- Updated ARCHITECTURE.md: tri-state → quad-state, resolved markers for C1/C3/C4/C5/H7.
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.

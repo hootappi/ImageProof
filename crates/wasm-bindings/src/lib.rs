@@ -3,6 +3,14 @@ use imageproof_core::{
 };
 use wasm_bindgen::prelude::*;
 
+/// One-time initialization: install a panic hook that forwards Rust panics
+/// to `console.error` so they are visible in browser DevTools instead of
+/// being swallowed as opaque "unreachable" WASM traps.
+#[wasm_bindgen(start)]
+pub fn init() {
+    console_error_panic_hook::set_once();
+}
+
 #[wasm_bindgen]
 pub fn verify_image(image_bytes: &[u8], fast_mode: bool) -> Result<JsValue, JsValue> {
     let request = VerifyRequest {
