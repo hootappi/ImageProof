@@ -102,6 +102,29 @@ Open: `http://127.0.0.1:4173/`
 - Launch validation: `cargo run -p imageproof-cli`.
 - Recommended workflow: keep changes incremental and update `.github/copilot-instructions.md` checklist as steps complete.
 
+## Stress Testing
+
+- Run the robustness harness:
+
+```powershell
+cargo run -p imageproof-cli -- stress <dataset_root>
+```
+
+- Expected dataset structure:
+
+```text
+<dataset_root>/
+	authentic/
+	edited/
+	synthetic/
+```
+
+- The harness recursively scans `jpg/jpeg/png/webp` files, runs Deep verification, and reports:
+	- overall accuracy
+	- per-class accuracy (`Authentic`, `Suspicious`, `Synthetic`)
+	- perturbation-tag accuracy based on path hints (`resized`, `cropped`, `recompressed`, `jpeg`, `webp`, `lowlight`)
+	- decode-failure count
+
 ## Customization Baseline
 
 - Modular core contracts (`model` and `engine`) for maintainability and testability.
@@ -115,6 +138,16 @@ Workspace setup checklist is complete and aligned to the current implementation 
 ## Open Items
 
 - Stress-test the Deep verification pipeline across authentic, edited, and synthetic image sets (including compression/resizing variants).
-- Define acceptance quality bar for release readiness (target FP/FN bounds, minimum sample sizes, pass/fail criteria).
 - Prepare Vercel deployment path for the `web` app to collect real-user feedback.
 - Define lightweight feedback collection loop (structured form/issues + triage cadence for threshold tuning).
+
+## Acceptance Quality Bar
+
+Current stress-test gate (printed by `imageproof-cli stress`) uses the following release-readiness criteria:
+
+- Minimum sample size: at least `25` images per class (`authentic`, `edited`, `synthetic`).
+- Authentic false-positive rate: `<=1%` (`authentic` classified as `Suspicious` or `Synthetic`).
+- Edited miss rate: `<=10%` (`edited` classified as `Authentic`).
+- Synthetic miss rate: `<=10%` (`synthetic` classified as `Authentic`).
+
+A run is marked `PASS` only if all sample-size and rate criteria are met; otherwise it is marked `FAIL` with explicit notes.

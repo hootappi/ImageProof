@@ -169,8 +169,17 @@ Starting workspace setup for ImageProof application.
 - Reduced semantic synthetic-cue aggressiveness and lowered hybrid influence in synthetic fusion.
 - Added explicit synthetic suppression based on strong physical consistency and natural high-frequency texture cues.
 
+### Stress Test Harness v1 (2026-02-24)
+- Extended `imageproof-cli` with `stress <dataset_root>` mode for dataset-level robustness evaluation.
+- Added recursive class-folder evaluation (`authentic`, `edited`, `synthetic`) with per-class and overall accuracy reporting.
+- Added perturbation-tag aggregation (resize/crop/recompress/jpeg/webp/lowlight) and decode-failure tracking.
+
+### Acceptance Quality Bar v1 (2026-02-24)
+- Added explicit PASS/FAIL quality-bar evaluation in stress-test output.
+- Added thresholds for authentic false positives (`<=1%`) and edited/synthetic miss rates (`<=10%`).
+- Added minimum sample-size requirement (`>=25` per class) with explicit failure notes.
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
-- Define acceptance quality bar before public feedback phase.
 - Prepare Vercel deployment path for browser/WASM app delivery.
 - Plan user feedback collection and triage loop for calibration iterations.
