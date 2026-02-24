@@ -43,7 +43,7 @@ Responsibilities:
 
 | Layer | Metrics | Purpose |
 |-------|---------|---------|
-| **Signal** | noise_score, edge_score, block_artifact_score, block_variance_cv, spectral_peak_score (FFT), high_freq_ratio_score (FFT) | Detect statistical anomalies in pixel distributions |
+| **Signal** | noise_score, edge_score, block_artifact_score (JPEG-only, H2), block_variance_cv, spectral_peak_score (FFT), high_freq_ratio_score (FFT) | Detect statistical anomalies in pixel distributions |
 | **Physical** | prnu_plausibility_score, cross_region_consistency | Proxy for sensor-originated noise patterns |
 | **Hybrid** | hybrid_local_inconsistency, hybrid_seam_anomaly | Detect localized manipulation (splices, composites) |
 | **Semantic** | semantic_pattern_repetition, semantic_gradient_entropy, semantic_synthetic_cue | Detect generative-model artifacts |
@@ -171,6 +171,6 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | C3 | Indeterminate classification dead code | **RESOLVED** — quad-state classification with Indeterminate branch |
 | C4 | Zero automated tests | **RESOLVED** — 78 tests + CI pipeline |
 | C5 | Unbounded memory from large images | **RESOLVED** — 50 MB file + 16384 dimension limits |
-| H1–H8 | Various high-priority issues | **UNMITIGATED** — see EXECUTION_PLAN.md |
+| H1–H8 | Various high-priority issues | H2 **RESOLVED** (JPEG format gating), H7 **RESOLVED** (panic hook); remainder unmitigated — see EXECUTION_PLAN.md |
 
 All risk IDs reference the code review findings. See `docs/EXECUTION_PLAN.md` for remediation plan and sequencing.

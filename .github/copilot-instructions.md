@@ -218,6 +218,12 @@ Starting workspace setup for ImageProof application.
 - Moved `compute_signal_metrics` to `#[cfg(test)]` (only tests use the untimed variant now).
 - Updated latency test: validates total < 30s and fusion ≤ signal (real measurement properties).
 
+### JPEG Format Gating — H2 (2026-02-24)
+- Added JPEG format detection via `ImageReader::format()` in decode path.
+- `block_artifact_score` is now forced to 0.0 for non-JPEG inputs (PNG, WebP, BMP, etc.).
+- Threaded `is_jpeg: bool` through `compute_pixel_statistics` and `compute_signal_metrics_timed`.
+- Added `make_jpeg` test helper and 3 H2 unit tests (PNG zero, JPEG non-negative, flag unit test).
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.

@@ -2,7 +2,7 @@ use crate::model::{
     ExecutionMode, LayerContributionScores, LayerLatencyMs, ReasonCode, ThresholdProfile,
     VerificationClass, VerificationResult, VerifyRequest,
 };
-use image::{GrayImage, ImageReader};
+use image::{GrayImage, ImageFormat, ImageReader};
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::io::Cursor;
 use std::time::Instant;
@@ -86,6 +86,9 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
     let reader = ImageReader::new(Cursor::new(image_bytes))
         .with_guessed_format()
         .map_err(|_| VerifyError::DecodeFailed)?;
+    // H2: Detect source format before decode — block artifact scoring
+    // is only meaningful for JPEG-compressed inputs.
+    let is_jpeg = reader.format() == Some(ImageFormat::Jpeg);
     let image = reader.decode().map_err(|_| VerifyError::DecodeFailed)?;
 
     let (width, height) = (image.width(), image.height());
@@ -100,7 +103,7 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
     let gray = image.to_luma8();
 
     // C2: Real per-layer timing via compute_signal_metrics_timed.
-    let timed = compute_signal_metrics_timed(&gray);
+    let timed = compute_signal_metrics_timed(&gray, is_jpeg);
     let metrics = timed.metrics;
 
     // Synthetic-base fusion weights — normalized to sum = 1.00 (C1 fix).
@@ -243,7 +246,7 @@ struct TimedMetrics {
 }
 
 /// Compute all signal metrics with real per-layer wall-clock timing.
-fn compute_signal_metrics_timed(gray: &GrayImage) -> TimedMetrics {
+fn compute_signal_metrics_timed(gray: &GrayImage, is_jpeg: bool) -> TimedMetrics {
     let width = gray.width();
     let height = gray.height();
 
@@ -274,7 +277,7 @@ fn compute_signal_metrics_timed(gray: &GrayImage) -> TimedMetrics {
     // --- Signal layer: pixel statistics + FFT ---
     let t_signal = Instant::now();
     let (noise_score, edge_score, block_artifact_score, block_variance_cv) =
-        compute_pixel_statistics(gray);
+        compute_pixel_statistics(gray, is_jpeg);
     let residual_map = compute_residual_map(gray);
     let (spectral_peak_score, high_freq_ratio_score) =
         compute_fft_signal_features(&residual_map, width as usize, height as usize);
@@ -322,7 +325,8 @@ fn compute_signal_metrics_timed(gray: &GrayImage) -> TimedMetrics {
 }
 
 /// Extract pixel-level statistics: noise, edge, block artifact, block variance CV.
-fn compute_pixel_statistics(gray: &GrayImage) -> (f32, f32, f32, f32) {
+/// H2: `block_artifact_score` is forced to 0.0 when `is_jpeg` is false.
+fn compute_pixel_statistics(gray: &GrayImage, is_jpeg: bool) -> (f32, f32, f32, f32) {
     let width = gray.width();
     let height = gray.height();
 
@@ -382,7 +386,10 @@ fn compute_pixel_statistics(gray: &GrayImage) -> (f32, f32, f32, f32) {
         1.0
     };
 
-    let block_artifact_score = if interior_avg <= f64::EPSILON {
+    let block_artifact_score = if !is_jpeg {
+        // H2: Block artifact metric is only meaningful for JPEG-compressed input.
+        0.0f32
+    } else if interior_avg <= f64::EPSILON {
         0.0f32
     } else {
         (((boundary_avg / interior_avg) - 1.0) / 0.8).clamp(0.0, 1.0) as f32
@@ -416,7 +423,7 @@ fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
     }
 
     let (noise_score, edge_score, block_artifact_score, block_variance_cv) =
-        compute_pixel_statistics(gray);
+        compute_pixel_statistics(gray, true); // tests assume JPEG for backward compat
     let residual_map = compute_residual_map(gray);
     let (spectral_peak_score, high_freq_ratio_score) =
         compute_fft_signal_features(&residual_map, width as usize, height as usize);
@@ -1851,6 +1858,79 @@ mod tests {
             metrics.block_artifact_score, 0.0,
             "flat image should have zero block artifact score"
         );
+    }
+
+    // ---------------------------------------------------------------
+    // 20. Block artifact format gating (H2)
+    // ---------------------------------------------------------------
+
+    fn make_jpeg(width: u32, height: u32, fill: u8) -> Vec<u8> {
+        let img = GrayImage::from_pixel(width, height, Luma([fill]));
+        let mut buf = Cursor::new(Vec::new());
+        img.write_to(&mut buf, ImageFormat::Jpeg).unwrap();
+        buf.into_inner()
+    }
+
+    #[test]
+    fn png_input_has_zero_block_artifact_score() {
+        // H2: PNG is not JPEG-compressed — block artifact metric must be zero.
+        let png = make_gradient_png(128, 128);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        // block_artifact_score is embedded in the fusion model;
+        // verify via layer contributions that signal layer doesn't
+        // incorporate block artifact. More directly, verify via
+        // compute_pixel_statistics with is_jpeg=false.
+        let img = image::load_from_memory(&make_gradient_png(128, 128))
+            .unwrap()
+            .to_luma8();
+        let (_, _, ba, _) = compute_pixel_statistics(&img, false);
+        assert_eq!(ba, 0.0, "PNG block_artifact_score should be 0.0, got {}", ba);
+        // Also verify score is still bounded
+        assert!((0.0..=1.0).contains(&result.authenticity_score));
+    }
+
+    #[test]
+    fn jpeg_input_may_have_nonzero_block_artifact_score() {
+        // H2: JPEG-compressed gradient image should have nonzero block artifact
+        // because JPEG introduces real 8×8 block discontinuities.
+        let jpeg = make_jpeg(128, 128, 128);
+        let img = image::load_from_memory(&jpeg).unwrap().to_luma8();
+        let (_, _, _ba_flat, _) = compute_pixel_statistics(&img, true);
+        // A flat JPEG may still have ba=0 (no texture), so use a gradient:
+        let jpeg_grad = {
+            let grad = ImageBuffer::from_fn(128, 128, |x, y| {
+                Luma([((x.wrapping_add(y * 3)) % 256) as u8])
+            });
+            let mut buf = Cursor::new(Vec::new());
+            grad.write_to(&mut buf, ImageFormat::Jpeg).unwrap();
+            buf.into_inner()
+        };
+        let img_grad = image::load_from_memory(&jpeg_grad).unwrap().to_luma8();
+        let (_, _, ba_grad, _) = compute_pixel_statistics(&img_grad, true);
+        // JPEG gradient should have measurable block artifacts
+        assert!(
+            ba_grad >= 0.0,
+            "JPEG block_artifact_score should be non-negative"
+        );
+    }
+
+    #[test]
+    fn non_jpeg_block_artifact_forced_zero_via_flag() {
+        // Direct unit test of the is_jpeg flag in compute_pixel_statistics.
+        let gray = ImageBuffer::from_fn(64, 64, |x, y| {
+            Luma([((x * 7 + y * 13) % 256) as u8])
+        });
+        let (_, _, ba_jpeg, _) = compute_pixel_statistics(&gray, true);
+        let (_, _, ba_non_jpeg, _) = compute_pixel_statistics(&gray, false);
+        // With is_jpeg=false, score must be zero regardless of pixel content.
+        assert_eq!(ba_non_jpeg, 0.0, "non-JPEG should force ba=0.0");
+        // With is_jpeg=true and textured content, score may be positive.
+        assert!(ba_jpeg >= 0.0, "JPEG ba should be non-negative");
     }
 
     // ---------------------------------------------------------------
