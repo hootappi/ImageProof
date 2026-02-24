@@ -16,6 +16,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **H2**: Added JPEG format detection in decode path. Block artifact scoring (`block_artifact_score`) is now forced to 0.0 for non-JPEG inputs. Added `make_jpeg` test helper and 3 H2 unit tests.
 - **H4**: `compute_residual_map` now returns interior-only buffer `(width-2) × (height-2)` excluding zero-padded border rows/cols. All downstream consumers (FFT, PRNU, hybrid, semantic) receive clean residuals. Gradient entropy in semantic layer decoupled to use `gray.width()`/`gray.height()` directly. Updated 4 existing tests, added 3 new H4 tests.
 - **H5**: `derive_perturbation_tags` now matches keywords against filename stem only (`Path::file_stem()`), not against the extension or directory path components. Plain `.jpg`/`.jpeg`/`.webp` files no longer receive spurious perturbation tags. Added 5 new H5 tests (extension exclusion, stem keyword, directory ignore).
+- **H6**: `collect_recursive` now uses `entry.file_type().is_symlink()` (does not follow symlinks) to detect and skip symlinks with a warning to stderr. Added 2 cross-platform unit tests + 2 Unix-only symlink integration tests + 1 Windows-ignored symlink test.
 
 ### Planned
 

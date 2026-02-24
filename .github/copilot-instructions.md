@@ -235,6 +235,17 @@ Starting workspace setup for ImageProof application.
 - Extensions (`.jpg`, `.jpeg`, `.webp`) and directory components no longer produce spurious perturbation tags.
 - Added 5 new H5 tests: 3 extension-exclusion, 1 stem-keyword, 1 directory-ignore.
 
+### Symlink Protection — H6 (2026-02-24)
+- `collect_recursive` now uses `entry.file_type().is_symlink()` to detect and skip symlinks with a warning.
+- `DirEntry::file_type()` does not follow symlinks (unlike `Path::is_dir()`).
+- Added 2 cross-platform unit tests (normal files, nested dirs).
+- Added 2 Unix-only symlink integration tests (file symlink, dir symlink).
+- Added 1 Windows `#[ignore]` symlink test (requires Developer Mode).
+
+### Feature Backlog Added (2026-02-24)
+- **F1: Analysis Progress Indicator** — state-driven progress UI (idle/running/completed/failed), scheduled for M4.
+- **F2: Privacy-Preserving Feedback Learning** — post-analysis feedback, local calibration, optional anonymous diagnostic sharing, scheduled for M4.
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.

@@ -100,6 +100,19 @@ Resolve all Critical findings and the most impactful High findings.
 
 **Exit criteria**: Layer modules compile and test independently. Stress test accuracy unchanged (regression gate). WASM binary size delta < 10%.
 
+### M4 — Feature Backlog (Est. 5–10 days)
+
+New features to implement after all planned fixes (M0–M3) are complete.
+
+| Item | Deliverable |
+|------|------------|
+| F1: Analysis Progress Indicator | Visual state-driven progress indicator (idle/running/completed/failed) in web UI. Driven by real analysis state, not artificial timing. Prevents duplicate analysis. UI remains responsive. |
+| F2: Privacy-Preserving Feedback Learning | Post-analysis feedback UI (correct/incorrect + classification correction), local calibration storage, optional opt-in anonymous diagnostic sharing. Strictly no image data leaves device. Modular: feedback UI, capture logic, local storage, diagnostic generator, optional transmitter. |
+
+**Exit criteria (F1)**: Progress indicator visible on analysis start; transitions correctly to completed/failed; no UI freeze; automated UI state tests.
+
+**Exit criteria (F2)**: Feedback capture works with sharing disabled; local calibration stores non-image data; opt-in sharing transmits only derived features + feedback labels; privacy audit passes (no image data in any transmission path); full documentation of privacy model, data schema, local storage model, and transmission model.
+
 ---
 
 ## Risks and Dependencies
@@ -143,7 +156,7 @@ A finding is "Done" when:
 | H3 | High | FFT limited to 64×64 samples | Increase cap to `min(dim, 256)` with configurable ceiling constant | `crates/core/src/engine.rs` | S | Backend | — | FFT window ≥128 for images ≥128px; spectral_peak_score changes validated in stress test | Unit test; stress-test regression check |
 | H4 | High | Residual map border zeros contaminate metrics | **DONE** — `compute_residual_map` now returns `(Vec<f32>, usize, usize)` interior-only buffer excluding border rows/cols. Downstream FFT/PRNU/hybrid/semantic consumers receive clean dimensions. Semantic gradient loop decoupled to use `gray.width()`/`gray.height()`. 4 existing tests updated, 3 new H4 tests. | `crates/core/src/engine.rs` | S | Backend | — | Interior-only residual verified ✓; no border zeros in downstream ✓ | Unit tests ✓ |
 | H5 | High | Perturbation tagging matches file extensions | **DONE** — `derive_perturbation_tags` now uses `Path::file_stem()` to match keywords against the filename stem only. Extensions and directory components are excluded. Added 5 new H5 tests (3 extension-exclusion, 1 stem-keyword, 1 directory-ignore). | `crates/cli/src/main.rs` | S | Backend | — | `photo.jpg` produces no jpeg tag ✓; `photo_recompressed_jpeg80.jpg` gets tag ✓ | Unit tests ✓ |
-| H6 | High | CLI follows symlinks without boundary check | Check `entry.file_type()?.is_symlink()` and skip; or canonicalize and reject paths outside dataset root | `crates/cli/src/main.rs` | S | Backend | — | Symlink to file outside dataset root is skipped with warning | Integration test (platform-specific) |
+| H6 | High | CLI follows symlinks without boundary check | **DONE** — `collect_recursive` now uses `entry.file_type().is_symlink()` to detect and skip symlinks with a warning. The `file_type()` method does not follow symlinks (unlike `Path::is_dir()`). Added 2 cross-platform tests, 2 Unix-only symlink integration tests, 1 Windows `#[ignore]` symlink test. | `crates/cli/src/main.rs` | S | Backend | — | Symlink skipped with warning ✓ | Unit + integration tests ✓ |
 | H7 | High | No WASM panic handler | **DONE** — Added `console_error_panic_hook` dep + `#[wasm_bindgen(start)] fn init()` that calls `set_once()`. | `crates/wasm-bindings/src/lib.rs`, `crates/wasm-bindings/Cargo.toml` | S | Backend | — | WASM panic produces readable message in browser console ✓ | Manual verification; WASM integration test |
 | H8 | High | Synchronous main-thread WASM execution | Move `verify_image` call into a Web Worker; post result back via message | `web/src/main.js`, new `web/src/worker.js` | M | Frontend | — | UI thread remains responsive during verification (no freeze >100ms) | Manual test: click during verify; automated Lighthouse check |
 | M1 | Medium | Monolithic engine (858 lines, no layer abstraction) | Extract per-layer modules: `signal.rs`, `physical.rs`, `hybrid.rs`, `semantic.rs`; define `AnalysisLayer` trait | `crates/core/src/` | L | Backend | C1, C4 | Each layer compiles and tests independently; `engine.rs` ≤200 lines | Compile check; per-module unit tests |
@@ -160,6 +173,8 @@ A finding is "Done" when:
 | L3 | Low | No versioning strategy | Add `version` script or use `cargo-release`; document in CONTRIBUTING.md | Root `Cargo.toml`, new `CONTRIBUTING.md` | S | DevOps | — | Version bump process documented | Manual review |
 | L4 | Low | HardwareTier enum unused | Remove or wire to conditional code paths | `crates/core/src/model.rs`, consumers | S | Backend | M8 | No dead enum variants; `cargo clippy` clean | Clippy |
 | L5 | Low | image crate format auto-detection | Restrict to explicit formats after guessing; reject unknown | `crates/core/src/engine.rs` | S | Backend | — | Only JPEG/PNG/WebP accepted; GIF/BMP/TIFF rejected with error | Unit test with BMP bytes |
+| F1 | Feature | No analysis progress indicator | Implement state-driven progress indicator (idle/running/completed/failed) in web UI. Prevent duplicate analysis. Driven by real analysis state, not artificial timing. UI remains responsive. | `web/src/main.js`, `web/index.html`, `web/src/style.css` | S | Frontend | H8 | Progress indicator visible on start; transitions correctly; no UI freeze | Automated UI state tests |
+| F2 | Feature | No feedback learning system | Implement privacy-preserving feedback: post-analysis feedback UI (correct/incorrect + classification correction), local calibration storage, optional opt-in anonymous diagnostic sharing. No image data leaves device. Modular components: feedback UI, capture logic, local storage, diagnostic generator, optional transmitter. | `web/src/main.js`, `web/src/feedback.js`, `web/src/calibration.js`, `docs/FEEDBACK_SYSTEM.md` | L | Frontend + Backend | F1 | Feedback works with sharing disabled; local storage has no image data; opt-in transmits only derived features; privacy audit passes | Unit tests + privacy audit |
 
 ---
 
@@ -230,7 +245,7 @@ Each PR should contain **one logical change** that is independently verifiable:
 | H3 | H3 | M3 |
 | H4 | H4 | M1 | **DONE** |
 | H5 | H5 | M1 | **DONE** |
-| H6 | H6 | M1 |
+| H6 | H6 | M1 | **DONE** |
 | H7 | H7 | M0 |
 | H8 | H8 | M2 |
 | M1 (arch) | M1 | M3 |
@@ -247,3 +262,5 @@ Each PR should contain **one logical change** that is independently verifiable:
 | L3 | L3 | M3 |
 | L4 | L4 | M3 |
 | L5 | L5 | M3 |
+| F1 | F1 | M4 |
+| F2 | F2 | M4 |

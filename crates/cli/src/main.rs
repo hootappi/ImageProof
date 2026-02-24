@@ -325,7 +325,17 @@ fn collect_recursive(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> 
         let entry = entry.map_err(|e| format!("Failed reading directory entry: {e}"))?;
         let entry_path = entry.path();
 
-        if entry_path.is_dir() {
+        // H6: detect symlinks via DirEntry::file_type (does NOT follow symlinks,
+        // unlike Path::is_dir / Path::is_file which do follow them).
+        let file_type = entry.file_type()
+            .map_err(|e| format!("Failed reading file type for {}: {e}", entry_path.display()))?;
+
+        if file_type.is_symlink() {
+            eprintln!("WARN: skipping symlink: {}", entry_path.display());
+            continue;
+        }
+
+        if file_type.is_dir() {
             collect_recursive(&entry_path, out)?;
             continue;
         }
@@ -547,5 +557,90 @@ mod tests {
         assert_eq!(stats.as_authentic, 0);
         assert_eq!(stats.as_suspicious, 0);
         assert_eq!(stats.as_synthetic, 0);
+    }
+
+    // ---------------------------------------------------------------
+    // H6: collect_recursive symlink protection
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn h6_collect_recursive_normal_files() {
+        // Normal directory with image files — should collect them
+        let tmp = std::env::temp_dir().join("imageproof_h6_normal");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("photo.jpg"), b"fake").unwrap();
+        fs::write(tmp.join("readme.txt"), b"text").unwrap();
+        let mut out = Vec::new();
+        collect_recursive(&tmp, &mut out).unwrap();
+        assert_eq!(out.len(), 1, "should collect only .jpg, got: {out:?}");
+        assert!(out[0].ends_with("photo.jpg"));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn h6_collect_recursive_nested_dirs() {
+        let tmp = std::env::temp_dir().join("imageproof_h6_nested");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("sub")).unwrap();
+        fs::write(tmp.join("a.png"), b"fake").unwrap();
+        fs::write(tmp.join("sub").join("b.png"), b"fake").unwrap();
+        let mut out = Vec::new();
+        collect_recursive(&tmp, &mut out).unwrap();
+        assert_eq!(out.len(), 2, "should collect both images, got: {out:?}");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// Symlink integration test — only runs on Unix where symlinks
+    /// don't require elevated privileges.
+    #[test]
+    #[cfg(unix)]
+    fn h6_collect_recursive_skips_symlink_file() {
+        let tmp = std::env::temp_dir().join("imageproof_h6_symfile");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("real.png"), b"fake").unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", tmp.join("link.png")).unwrap();
+        let mut out = Vec::new();
+        collect_recursive(&tmp, &mut out).unwrap();
+        assert_eq!(out.len(), 1, "symlink file should be skipped, got: {out:?}");
+        assert!(out[0].ends_with("real.png"));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// Symlink directory test — only runs on Unix.
+    #[test]
+    #[cfg(unix)]
+    fn h6_collect_recursive_skips_symlink_dir() {
+        let tmp = std::env::temp_dir().join("imageproof_h6_symdir");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("real.jpg"), b"fake").unwrap();
+        std::os::unix::fs::symlink("/tmp", tmp.join("link_dir")).unwrap();
+        let mut out = Vec::new();
+        collect_recursive(&tmp, &mut out).unwrap();
+        assert_eq!(out.len(), 1, "symlink dir should be skipped, got: {out:?}");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// Windows symlink test — requires Developer Mode or elevated privileges.
+    /// Marked #[ignore] because CI runners typically don't have symlink rights.
+    #[test]
+    #[cfg(windows)]
+    #[ignore]
+    fn h6_collect_recursive_skips_symlink_file_windows() {
+        let tmp = std::env::temp_dir().join("imageproof_h6_win_sym");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let target = tmp.join("target.png");
+        fs::write(&target, b"fake").unwrap();
+        // Create a symlink alongside the real file
+        std::os::windows::fs::symlink_file(&target, tmp.join("link.png")).unwrap();
+        let mut out = Vec::new();
+        collect_recursive(&tmp, &mut out).unwrap();
+        // Should collect only the real file, not the symlink
+        assert_eq!(out.len(), 1, "symlink should be skipped, got: {out:?}");
+        assert!(out[0].ends_with("target.png"));
+        let _ = fs::remove_dir_all(&tmp);
     }
 }
