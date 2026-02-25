@@ -55,6 +55,10 @@ const INDETERMINATE_CEILING: f32 = 0.30;
 /// Indeterminate deadlock when both likelihoods are below the ceiling.
 const INDETERMINATE_MIN_SPREAD: f32 = 0.08;
 
+/// M7: Minimum layer contribution score for emitting a per-layer reason code.
+/// Layers below this threshold are excluded from reason codes and layer_reasons.
+const REASON_CODE_CONTRIBUTION_THRESHOLD: f32 = 0.15;
+
 /// Maximum accepted raw input size (50 MB). Prevents unbounded memory
 /// allocation when the caller supplies a very large buffer.
 const MAX_FILE_SIZE_BYTES: usize = 50 * 1024 * 1024;
@@ -147,10 +151,15 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
     let authentic_likelihood =
         (1.0 - 0.55 * synthetic_likelihood - 0.45 * edited_likelihood).clamp(0.0, 1.0);
 
+    // M7: Compute layer contributions before classification so reason codes
+    // can be driven by actual contribution scores instead of being hardcoded.
+    let layer_contributions = compute_layer_contributions(&metrics);
+
     let (classification, authenticity_score, reason_codes, layer_reasons) =
         if synthetic_likelihood > SYNTHETIC_MIN_THRESHOLD
             && synthetic_likelihood > edited_likelihood + SYNTHETIC_MARGIN_THRESHOLD
         {
+            // Synthetic: strong evidence — emit all layer codes unconditionally.
             (
                 VerificationClass::Synthetic,
                 (1.0 - 0.9 * synthetic_likelihood).clamp(0.05, 0.40),
@@ -168,18 +177,24 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
                 ],
             )
         } else if edited_likelihood > SUSPICIOUS_MIN_THRESHOLD {
-            let mut reason_codes = vec![ReasonCode::HybEla001, ReasonCode::SigFreq001, ReasonCode::PhyPrnu001];
-            let mut layer_reasons = vec![
-                ("hybrid".to_string(), vec![ReasonCode::HybEla001]),
-                ("signal".to_string(), vec![ReasonCode::SigFreq001]),
-                ("physical".to_string(), vec![ReasonCode::PhyPrnu001]),
-            ];
+            // Suspicious: emit codes only for layers that actually contributed (M7).
+            let (mut reason_codes, mut layer_reasons) =
+                derive_reason_codes(&layer_contributions);
 
-            if metrics.semantic_synthetic_cue > 0.55
-                || (metrics.semantic_pattern_repetition > 0.50 && metrics.semantic_gradient_entropy < 0.45)
+            // Conditional semantic escalation for suspicious semantic cues.
+            if !reason_codes.contains(&ReasonCode::SemClass001)
+                && (metrics.semantic_synthetic_cue > 0.55
+                    || (metrics.semantic_pattern_repetition > 0.50
+                        && metrics.semantic_gradient_entropy < 0.45))
             {
                 reason_codes.push(ReasonCode::SemClass001);
                 layer_reasons.push(("semantic".to_string(), vec![ReasonCode::SemClass001]));
+            }
+
+            // Suspicious must have at least one reason code — fallback to HybEla001.
+            if reason_codes.is_empty() {
+                reason_codes.push(ReasonCode::HybEla001);
+                layer_reasons.push(("hybrid".to_string(), vec![ReasonCode::HybEla001]));
             }
 
             (
@@ -201,17 +216,27 @@ fn verify_deep_heuristic(image_bytes: &[u8]) -> Result<VerificationResult, Verif
                 vec![("system".to_string(), vec![ReasonCode::SysInsuff001])],
             )
         } else {
+            // Authentic: emit codes only for layers that actually contributed (M7).
+            let (mut reason_codes, mut layer_reasons) =
+                derive_reason_codes(&layer_contributions);
+
+            // Authentic must have at least one reason code — fallback to PhyPrnu001.
+            if reason_codes.is_empty() {
+                reason_codes.push(ReasonCode::PhyPrnu001);
+                layer_reasons.push(("physical".to_string(), vec![ReasonCode::PhyPrnu001]));
+            }
+
             (
                 VerificationClass::Authentic,
                 (0.62 + authentic_likelihood * 0.33).clamp(0.62, 0.95),
-                vec![ReasonCode::PhyPrnu001],
-                vec![("physical".to_string(), vec![ReasonCode::PhyPrnu001])],
+                reason_codes,
+                layer_reasons,
             )
         };
 
     // --- Fusion timing (C2: real measurement) ---
     let t_fusion = Instant::now();
-    let layer_contributions = compute_layer_contributions(&metrics);
+    // layer_contributions already computed before classification (M7).
     let threshold_profile = ThresholdProfile {
         synthetic_min: SYNTHETIC_MIN_THRESHOLD,
         synthetic_margin: SYNTHETIC_MARGIN_THRESHOLD,
@@ -449,6 +474,36 @@ fn compute_signal_metrics(gray: &GrayImage) -> SignalMetrics {
         semantic_gradient_entropy,
         semantic_synthetic_cue,
     }
+}
+
+/// M7: Derive reason codes and layer_reasons from actual contribution scores.
+/// Only layers whose contribution score meets `REASON_CODE_CONTRIBUTION_THRESHOLD`
+/// receive a reason code. Returns `(reason_codes, layer_reasons)`.
+fn derive_reason_codes(
+    contributions: &LayerContributionScores,
+) -> (Vec<ReasonCode>, Vec<(String, Vec<ReasonCode>)>) {
+    let mut codes = Vec::new();
+    let mut layers = Vec::new();
+    let t = REASON_CODE_CONTRIBUTION_THRESHOLD;
+
+    if contributions.signal >= t {
+        codes.push(ReasonCode::SigFreq001);
+        layers.push(("signal".to_string(), vec![ReasonCode::SigFreq001]));
+    }
+    if contributions.physical >= t {
+        codes.push(ReasonCode::PhyPrnu001);
+        layers.push(("physical".to_string(), vec![ReasonCode::PhyPrnu001]));
+    }
+    if contributions.hybrid >= t {
+        codes.push(ReasonCode::HybEla001);
+        layers.push(("hybrid".to_string(), vec![ReasonCode::HybEla001]));
+    }
+    if contributions.semantic >= t {
+        codes.push(ReasonCode::SemClass001);
+        layers.push(("semantic".to_string(), vec![ReasonCode::SemClass001]));
+    }
+
+    (codes, layers)
 }
 
 fn compute_layer_contributions(metrics: &SignalMetrics) -> LayerContributionScores {
@@ -2079,5 +2134,130 @@ mod tests {
             "Indeterminate result should contain SysInsuff001, got {:?}",
             result.reason_codes
         );
+    }
+
+    // ── M7: derive_reason_codes unit tests ─────────────────────────────────
+
+    #[test]
+    fn m7_derive_reason_codes_all_above_threshold() {
+        let contributions = LayerContributionScores {
+            signal: 0.50,
+            physical: 0.30,
+            hybrid: 0.20,
+            semantic: 0.40,
+        };
+        let (codes, layers) = derive_reason_codes(&contributions);
+        assert!(codes.contains(&ReasonCode::SigFreq001));
+        assert!(codes.contains(&ReasonCode::PhyPrnu001));
+        assert!(codes.contains(&ReasonCode::HybEla001));
+        assert!(codes.contains(&ReasonCode::SemClass001));
+        assert_eq!(codes.len(), 4);
+        assert_eq!(layers.len(), 4);
+    }
+
+    #[test]
+    fn m7_derive_reason_codes_none_above_threshold() {
+        let contributions = LayerContributionScores {
+            signal: 0.10,
+            physical: 0.05,
+            hybrid: 0.00,
+            semantic: 0.14,
+        };
+        let (codes, layers) = derive_reason_codes(&contributions);
+        assert!(codes.is_empty(), "No codes should be emitted when all contributions are below threshold, got {:?}", codes);
+        assert!(layers.is_empty());
+    }
+
+    #[test]
+    fn m7_derive_reason_codes_partial() {
+        let contributions = LayerContributionScores {
+            signal: 0.60,
+            physical: 0.10,  // below threshold
+            hybrid: 0.25,
+            semantic: 0.01,  // below threshold
+        };
+        let (codes, layers) = derive_reason_codes(&contributions);
+        assert_eq!(codes.len(), 2);
+        assert!(codes.contains(&ReasonCode::SigFreq001));
+        assert!(codes.contains(&ReasonCode::HybEla001));
+        assert!(!codes.contains(&ReasonCode::PhyPrnu001));
+        assert!(!codes.contains(&ReasonCode::SemClass001));
+        assert_eq!(layers.len(), 2);
+    }
+
+    #[test]
+    fn m7_derive_reason_codes_at_exact_threshold() {
+        // At exactly the threshold, the code SHOULD be emitted (>=).
+        let contributions = LayerContributionScores {
+            signal: REASON_CODE_CONTRIBUTION_THRESHOLD,
+            physical: REASON_CODE_CONTRIBUTION_THRESHOLD - 0.001,
+            hybrid: REASON_CODE_CONTRIBUTION_THRESHOLD,
+            semantic: REASON_CODE_CONTRIBUTION_THRESHOLD - 0.001,
+        };
+        let (codes, _) = derive_reason_codes(&contributions);
+        assert_eq!(codes.len(), 2, "Exact threshold should emit code, got {:?}", codes);
+        assert!(codes.contains(&ReasonCode::SigFreq001));
+        assert!(codes.contains(&ReasonCode::HybEla001));
+    }
+
+    #[test]
+    fn m7_reason_code_threshold_is_positive() {
+        let t = REASON_CODE_CONTRIBUTION_THRESHOLD;
+        assert!(
+            t > 0.0,
+            "Threshold must be positive to avoid emitting codes for zero-contribution layers"
+        );
+        assert!(
+            t < 1.0,
+            "Threshold must be < 1.0 to allow some layers to pass"
+        );
+    }
+
+    #[test]
+    fn m7_authentic_omits_phyprnu001_when_physical_contribution_zero() {
+        // A gradient image typically classifies as Authentic with very low physical
+        // contribution. After M7, PhyPrnu001 should only appear if the physical
+        // layer's contribution is above threshold.
+        let png = make_gradient_png(200, 200);
+        let req = VerifyRequest {
+            image_bytes: png,
+            execution_mode: ExecutionMode::Deep,
+            hardware_tier: HardwareTier::CpuOnly,
+        };
+        let result = verify(req).unwrap();
+        let contrib = &result.layer_contributions;
+        if contrib.physical < REASON_CODE_CONTRIBUTION_THRESHOLD {
+            assert!(
+                !result.reason_codes.contains(&ReasonCode::PhyPrnu001),
+                "Physical contribution ({}) is below threshold ({}) but PhyPrnu001 was emitted. Reason codes: {:?}",
+                contrib.physical,
+                REASON_CODE_CONTRIBUTION_THRESHOLD,
+                result.reason_codes
+            );
+        }
+    }
+
+    #[test]
+    fn m7_every_result_has_at_least_one_reason_code() {
+        // Verify all classification paths emit at least one reason code.
+        let test_images = vec![
+            ("gradient", make_gradient_png(200, 200)),
+            ("noisy", make_noisy_png(200, 200, 99)),
+            ("xorshift", make_xorshift_png(128, 128, 42)),
+        ];
+        for (label, png) in test_images {
+            let req = VerifyRequest {
+                image_bytes: png,
+                execution_mode: ExecutionMode::Deep,
+                hardware_tier: HardwareTier::CpuOnly,
+            };
+            let result = verify(req).unwrap();
+            assert!(
+                !result.reason_codes.is_empty(),
+                "Image '{}' ({:?}) should have at least one reason code",
+                label,
+                result.classification
+            );
+        }
     }
 }

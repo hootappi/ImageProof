@@ -19,6 +19,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **H6**: `collect_recursive` now uses `entry.file_type().is_symlink()` (does not follow symlinks) to detect and skip symlinks with a warning to stderr. Added 2 cross-platform unit tests + 2 Unix-only symlink integration tests + 1 Windows-ignored symlink test.
 - **H1**: Replaced parabolic Suspicious confidence formula `(1 - abs(0.5 - s) * 2)` with linear `(1 - bounded)` inversion in `web/src/main.js`. Confidence is now monotonically decreasing with `authenticity_score` for Suspicious classification.
 - **M9**: Added Content-Security-Policy meta tag in `web/index.html` and Vercel HTTP header config in `web/vercel.json`. Policy enforces `default-src 'none'`, `connect-src 'none'`, `script-src 'self' 'wasm-unsafe-eval'` — no external network requests permitted. Additional hardening headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` (camera/mic/geo/payment denied).
+- **M7**: Reason codes are now driven by per-layer contribution scores above `REASON_CODE_CONTRIBUTION_THRESHOLD` (0.15). Authentic and Suspicious branches emit only codes for layers that actually contributed. Added `derive_reason_codes` helper, `REASON_CODE_CONTRIBUTION_THRESHOLD` constant, and 7 new unit tests.
 
 ### Planned
 

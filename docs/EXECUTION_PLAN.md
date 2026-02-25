@@ -165,7 +165,7 @@ A finding is "Done" when:
 | M4 | Medium | Duplicate pixel iteration (signal + residual) | Compute residual map once; derive noise/edge from it | `crates/core/src/engine.rs` | M | Backend | M1 | Single pixel-iteration pass; benchmark shows ≥30% speedup on 12MP | Benchmark test |
 | M5 | Medium | f32 precision loss in correlation sums | Use f64 accumulators in `compute_shifted_residual_corr` and `block_corr`; cast result to f32 | `crates/core/src/engine.rs` | S | Backend | — | Correlation on synthetic 1000×1000 test image matches f64 reference ±0.001 | Unit test with known correlation |
 | M6 | Medium | WASM entry forces full buffer copy | Change `VerifyRequest` to accept `Cow<[u8]>` or `&[u8]` with lifetime | `crates/core/src/model.rs`, `crates/core/src/engine.rs`, `crates/wasm-bindings/src/lib.rs` | S | Backend | — | No `.to_vec()` in WASM hot path | Code review; benchmark memory delta |
-| M7 | Medium | Authentic always emits PhyPrnu001 | Emit reason codes from actual layer contribution scores above threshold | `crates/core/src/engine.rs` | S | Backend | C1 | Authentic result on image with zero physical contribution omits PhyPrnu001 | Unit test |
+| M7 | Medium | Authentic always emits PhyPrnu001 | **DONE** — Reason codes now driven by `derive_reason_codes()` using per-layer contribution scores above `REASON_CODE_CONTRIBUTION_THRESHOLD` (0.15). Authentic and Suspicious branches emit only codes for layers that actually contributed. Fallback ensures at least one code per result. Added 7 new unit tests. | `crates/core/src/engine.rs` | S | Backend | C1 | Authentic result with low physical contribution omits PhyPrnu001 ✓; all paths emit ≥1 code ✓ | 7 unit tests ✓; clippy clean ✓ |
 | M8 | Medium | Fast mode permanently broken | Implement lightweight fast path OR remove from public API and `ExecutionMode` enum | `crates/core/src/engine.rs`, `crates/wasm-bindings/src/lib.rs` | M | Backend | — | Fast mode either produces result or enum variant is removed | Compile check; unit test |
 | M9 | Medium | No Content-Security-Policy | **DONE** — Added CSP meta tag in `index.html` and `vercel.json` HTTP header config. Policy: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'none'`. Additional hardening: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy`. | `web/index.html`, new `web/vercel.json` | S | Frontend | — | CSP header present in production build ✓; `connect-src 'none'` enforced ✓ | Production build inspection ✓ |
 | L1 | Low | start-web.ps1 auto-installs without consent | Add confirmation prompt before `winget install` commands | `start-web.ps1` | S | DevOps | — | Script prompts user before installing any software | Manual verification |
@@ -254,7 +254,7 @@ Each PR should contain **one logical change** that is independently verifiable:
 | M4 (dup iter) | M4 | M3 |
 | M5 (f32) | M5 | M2 |
 | M6 (copy) | M6 | M3 |
-| M7 (reason) | M7 | M2 |
+| M7 (reason) | M7 | M2 | **DONE** |
 | M8 (fast) | M8 | M3 |
 | M9 (CSP) | M9 | M2 | **DONE** |
 | L1 | L1 | M3 |

@@ -256,6 +256,13 @@ Starting workspace setup for ImageProof application.
 - Created `web/vercel.json` with matching CSP HTTP header plus `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` hardening headers.
 - No external network requests permitted — aligns with core privacy requirement.
 
+### Authentic Reason Code Fix — M7 (2026-02-25)
+- Reason codes are now driven by per-layer contribution scores via `derive_reason_codes()`.
+- Added `REASON_CODE_CONTRIBUTION_THRESHOLD` (0.15) constant — only layers above this emit reason codes.
+- Authentic and Suspicious branches no longer hardcode `PhyPrnu001` regardless of physical contribution.
+- Fallback logic ensures every result has at least one reason code.
+- Added 7 new unit tests covering all derive_reason_codes paths and integration verification.
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.
