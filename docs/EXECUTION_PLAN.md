@@ -167,7 +167,7 @@ A finding is "Done" when:
 | M6 | Medium | WASM entry forces full buffer copy | Change `VerifyRequest` to accept `Cow<[u8]>` or `&[u8]` with lifetime | `crates/core/src/model.rs`, `crates/core/src/engine.rs`, `crates/wasm-bindings/src/lib.rs` | S | Backend | — | No `.to_vec()` in WASM hot path | Code review; benchmark memory delta |
 | M7 | Medium | Authentic always emits PhyPrnu001 | Emit reason codes from actual layer contribution scores above threshold | `crates/core/src/engine.rs` | S | Backend | C1 | Authentic result on image with zero physical contribution omits PhyPrnu001 | Unit test |
 | M8 | Medium | Fast mode permanently broken | Implement lightweight fast path OR remove from public API and `ExecutionMode` enum | `crates/core/src/engine.rs`, `crates/wasm-bindings/src/lib.rs` | M | Backend | — | Fast mode either produces result or enum variant is removed | Compile check; unit test |
-| M9 | Medium | No Content-Security-Policy | Add CSP meta tag in `index.html`; add header config for Vercel | `web/index.html`, new `vercel.json` | S | Frontend | — | CSP header present in production response; `connect-src 'none'` enforced | Manual header inspection; security scan |
+| M9 | Medium | No Content-Security-Policy | **DONE** — Added CSP meta tag in `index.html` and `vercel.json` HTTP header config. Policy: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'none'`. Additional hardening: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy`. | `web/index.html`, new `web/vercel.json` | S | Frontend | — | CSP header present in production build ✓; `connect-src 'none'` enforced ✓ | Production build inspection ✓ |
 | L1 | Low | start-web.ps1 auto-installs without consent | Add confirmation prompt before `winget install` commands | `start-web.ps1` | S | DevOps | — | Script prompts user before installing any software | Manual verification |
 | L2 | Low | No JS/CSS formatting | Add Prettier config and npm format script | `web/package.json`, new `.prettierrc` | S | Frontend | — | `npm run format` succeeds; CI checks format | CI step |
 | L3 | Low | No versioning strategy | Add `version` script or use `cargo-release`; document in CONTRIBUTING.md | Root `Cargo.toml`, new `CONTRIBUTING.md` | S | DevOps | — | Version bump process documented | Manual review |
@@ -256,7 +256,7 @@ Each PR should contain **one logical change** that is independently verifiable:
 | M6 (copy) | M6 | M3 |
 | M7 (reason) | M7 | M2 |
 | M8 (fast) | M8 | M3 |
-| M9 (CSP) | M9 | M2 |
+| M9 (CSP) | M9 | M2 | **DONE** |
 | L1 | L1 | M3 |
 | L2 | L2 | M3 |
 | L3 | L3 | M3 |

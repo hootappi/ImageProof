@@ -78,9 +78,11 @@ Two modes:
 
 ### `web/` — Frontend
 
-**Files**: `index.html`, `src/main.js` (170 lines), `src/styles.css`
+**Files**: `index.html`, `src/main.js` (170 lines), `src/styles.css`, `vercel.json`
 
 Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result display.
+
+**Security (M9)**: CSP meta tag in `index.html` and `vercel.json` HTTP headers enforce `default-src 'none'`, `connect-src 'none'`, `script-src 'self' 'wasm-unsafe-eval'`. No external network requests permitted.
 
 **KNOWN ISSUE (H8)**: `verify_image` runs synchronously on main thread, blocking UI.
 
@@ -170,5 +172,6 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | C4 | Zero automated tests | **RESOLVED** — 78 tests + CI pipeline |
 | C5 | Unbounded memory from large images | **RESOLVED** — 50 MB file + 16384 dimension limits |
 | H1–H8 | Various high-priority issues | H1 **RESOLVED** (linear confidence formula), H2 **RESOLVED** (JPEG format gating), H4 **RESOLVED** (residual border exclusion), H5 **RESOLVED** (stem-only perturbation tagging), H6 **RESOLVED** (symlink protection), H7 **RESOLVED** (panic hook); remainder unmitigated — see EXECUTION_PLAN.md |
+| M9 | No Content-Security-Policy | **RESOLVED** — CSP meta tag + Vercel header config enforce local-only execution |
 
 All risk IDs reference the code review findings. See `docs/EXECUTION_PLAN.md` for remediation plan and sequencing.

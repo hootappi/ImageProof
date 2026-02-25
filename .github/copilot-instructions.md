@@ -251,6 +251,11 @@ Starting workspace setup for ImageProof application.
 - Suspicious confidence is now monotonically decreasing with `authenticity_score`.
 - Previous formula peaked at 0.5 and dropped to 0% at both extremes, distorting backend scores.
 
+### Content-Security-Policy — M9 (2026-02-25)
+- Added CSP meta tag in `web/index.html` enforcing `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'none'`.
+- Created `web/vercel.json` with matching CSP HTTP header plus `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` hardening headers.
+- No external network requests permitted — aligns with core privacy requirement.
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.
