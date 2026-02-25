@@ -246,6 +246,11 @@ Starting workspace setup for ImageProof application.
 - **F1: Analysis Progress Indicator** — state-driven progress UI (idle/running/completed/failed), scheduled for M4.
 - **F2: Privacy-Preserving Feedback Learning** — post-analysis feedback, local calibration, optional anonymous diagnostic sharing, scheduled for M4.
 
+### Frontend Confidence Fix — H1 (2026-02-25)
+- Replaced parabolic Suspicious confidence formula `(1 - abs(0.5 - s) * 2)` with linear `(1 - bounded)` inversion.
+- Suspicious confidence is now monotonically decreasing with `authenticity_score`.
+- Previous formula peaked at 0.5 and dropped to 0% at both extremes, distorting backend scores.
+
 ## Open Items (Pending)
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.

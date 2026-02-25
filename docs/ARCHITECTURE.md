@@ -82,7 +82,6 @@ Two modes:
 
 Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result display.
 
-**KNOWN ISSUE (H1)**: Suspicious confidence uses a parabolic formula that distorts backend scores.
 **KNOWN ISSUE (H8)**: `verify_image` runs synchronously on main thread, blocking UI.
 
 ## Data Flow
@@ -170,6 +169,6 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | C3 | Indeterminate classification dead code | **RESOLVED** — quad-state classification with Indeterminate branch |
 | C4 | Zero automated tests | **RESOLVED** — 78 tests + CI pipeline |
 | C5 | Unbounded memory from large images | **RESOLVED** — 50 MB file + 16384 dimension limits |
-| H1–H8 | Various high-priority issues | H2 **RESOLVED** (JPEG format gating), H4 **RESOLVED** (residual border exclusion), H5 **RESOLVED** (stem-only perturbation tagging), H6 **RESOLVED** (symlink protection), H7 **RESOLVED** (panic hook); remainder unmitigated — see EXECUTION_PLAN.md |
+| H1–H8 | Various high-priority issues | H1 **RESOLVED** (linear confidence formula), H2 **RESOLVED** (JPEG format gating), H4 **RESOLVED** (residual border exclusion), H5 **RESOLVED** (stem-only perturbation tagging), H6 **RESOLVED** (symlink protection), H7 **RESOLVED** (panic hook); remainder unmitigated — see EXECUTION_PLAN.md |
 
 All risk IDs reference the code review findings. See `docs/EXECUTION_PLAN.md` for remediation plan and sequencing.

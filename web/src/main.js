@@ -64,7 +64,10 @@ function formatConfidence(result) {
   }
 
   if (classification === "Suspicious") {
-    return `${Math.round((1 - Math.abs(0.5 - bounded) * 2) * 100)}%`;
+    // H1: linear inversion — confidence that the image is edited increases
+    // as authenticity_score decreases. Previous parabolic formula distorted
+    // scores (peaked at 0.5, dropped at extremes).
+    return `${Math.round((1 - bounded) * 100)}%`;
   }
 
   if (classification === "Synthetic") {

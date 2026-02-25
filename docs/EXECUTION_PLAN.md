@@ -151,7 +151,7 @@ A finding is "Done" when:
 | C3 | Critical | Indeterminate classification is dead code | **DONE** — Added Indeterminate branch with `INDETERMINATE_CEILING` (0.30) and `INDETERMINATE_MIN_SPREAD` (0.08). Xorshift white-noise image triggers Indeterminate (score 0.50, SysInsuff001). Added `make_xorshift_png` helper and 6 C3 tests. Updated ARCHITECTURE.md to quad-state. | `crates/core/src/engine.rs` | S | Backend | C1 | Xorshift noise image → Indeterminate ✓; constants consistent with higher thresholds ✓ | Unit tests ✓ |
 | C4 | Critical | Zero automated tests | **DONE** — 44 core + 17 CLI unit tests (59 total, 2 ignored pending C1). CI workflow added. | `crates/core/src/engine.rs`, `crates/cli/src/main.rs`, `.github/workflows/ci.yml` | L | Backend + Frontend | — | ≥30 tests passing ✅ (59); coverage on every public function | `cargo test` in CI ✅ |
 | C5 | Critical | Unbounded memory from large images | **DONE** — Added `MAX_FILE_SIZE_BYTES` (50 MB) pre-decode + `MAX_IMAGE_DIMENSION` (16384) post-decode guards. New error variants `InputTooLarge`, `DimensionTooLarge`. 6 new tests. | `crates/core/src/engine.rs` | S | Backend | — | 50 MB+ file rejected ✓; dimension limit enforced ✓ | Unit tests ✓ |
-| H1 | High | Frontend confidence distorts backend scores | Replace Suspicious formula `(1 - abs(0.5 - s) * 2)` with `Math.round((1 - bounded) * 100)` | `web/src/main.js` | S | Frontend | — | Suspicious confidence is monotonically decreasing with authenticity_score | Manual test + JS unit test |
+| H1 | High | Frontend confidence distorts backend scores | **DONE** — Replaced parabolic Suspicious formula `(1 - abs(0.5 - s) * 2)` with linear `(1 - bounded)` inversion. Confidence is now monotonically decreasing with `authenticity_score`. | `web/src/main.js` | S | Frontend | — | Suspicious confidence is monotonically decreasing with authenticity_score ✓ | Web build passes ✓ |
 | H2 | High | Block artifact scoring assumes JPEG 8×8 | **DONE** — Detect format via `ImageReader::format()`; `block_artifact_score` forced to 0.0 when `!is_jpeg`. Threaded `is_jpeg` through `compute_pixel_statistics` and `compute_signal_metrics_timed`. Added `make_jpeg` helper and 3 unit tests. | `crates/core/src/engine.rs` | S | Backend | — | `block_artifact_score` is 0.0 for PNG input ✓ | Unit tests ✓ |
 | H3 | High | FFT limited to 64×64 samples | Increase cap to `min(dim, 256)` with configurable ceiling constant | `crates/core/src/engine.rs` | S | Backend | — | FFT window ≥128 for images ≥128px; spectral_peak_score changes validated in stress test | Unit test; stress-test regression check |
 | H4 | High | Residual map border zeros contaminate metrics | **DONE** — `compute_residual_map` now returns `(Vec<f32>, usize, usize)` interior-only buffer excluding border rows/cols. Downstream FFT/PRNU/hybrid/semantic consumers receive clean dimensions. Semantic gradient loop decoupled to use `gray.width()`/`gray.height()`. 4 existing tests updated, 3 new H4 tests. | `crates/core/src/engine.rs` | S | Backend | — | Interior-only residual verified ✓; no border zeros in downstream ✓ | Unit tests ✓ |
@@ -240,7 +240,7 @@ Each PR should contain **one logical change** that is independently verifiable:
 | C3 | C3 | M1 |
 | C4 | C4 | M0 |
 | C5 | C5 | M1 |
-| H1 | H1 | M2 |
+| H1 | H1 | M2 | **DONE** |
 | H2 | H2 | M1 |
 | H3 | H3 | M3 |
 | H4 | H4 | M1 | **DONE** |
