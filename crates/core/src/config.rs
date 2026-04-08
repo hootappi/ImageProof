@@ -14,10 +14,10 @@ use serde::Deserialize;
 // ─── Classification thresholds ────────────────────────────────────────────
 
 /// Minimum synthetic likelihood to classify as Synthetic.
-pub const SYNTHETIC_MIN_THRESHOLD: f32 = 0.58;
+pub const SYNTHETIC_MIN_THRESHOLD: f32 = 0.62;
 
 /// Minimum margin synthetic must exceed edited likelihood by for Synthetic.
-pub const SYNTHETIC_MARGIN_THRESHOLD: f32 = 0.10;
+pub const SYNTHETIC_MARGIN_THRESHOLD: f32 = 0.12;
 
 /// Minimum edited likelihood to classify as Suspicious.
 pub const SUSPICIOUS_MIN_THRESHOLD: f32 = 0.62;
@@ -86,10 +86,10 @@ pub const SYN_W_SEMANTIC_CUE: f32 = 0.09;
 
 // ─── Deep-mode fusion weights: synthetic suppression ─────────────────────
 
-pub const SYN_SUPP_PRNU: f32 = 0.16;
-pub const SYN_SUPP_CONSISTENCY: f32 = 0.10;
-pub const SYN_SUPP_HF_RATIO: f32 = 0.06;
-pub const SYN_SUPP_FLOOR: f32 = 0.55;
+pub const SYN_SUPP_PRNU: f32 = 0.25;
+pub const SYN_SUPP_CONSISTENCY: f32 = 0.18;
+pub const SYN_SUPP_HF_RATIO: f32 = 0.10;
+pub const SYN_SUPP_FLOOR: f32 = 0.40;
 
 // ─── Deep-mode fusion weights: edited base (sum = 1.00, C1) ─────────────
 
@@ -238,10 +238,10 @@ pub const COLOR_SYNTH_W_CHANNEL_CORR: f32 = 0.55;
 pub const COLOR_SYNTH_W_NOISE_BRIGHT_INV: f32 = 0.45;
 
 /// Color boost: minimum color evidence to activate additive boost.
-pub const COLOR_SYNTH_GATE: f32 = 0.25;
+pub const COLOR_SYNTH_GATE: f32 = 0.40;
 
 /// Color boost: scale factor for evidence above gate.
-pub const COLOR_SYNTH_BOOST_SCALE: f32 = 1.0;
+pub const COLOR_SYNTH_BOOST_SCALE: f32 = 0.45;
 
 /// Mean per-pixel |R-G|+|R-B|+|G-B| below which image is treated as grayscale.
 pub const GRAYSCALE_MEAN_DIFF_THRESHOLD: f64 = 1.5;

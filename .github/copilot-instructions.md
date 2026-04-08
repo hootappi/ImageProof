@@ -332,8 +332,29 @@ Starting workspace setup for ImageProof application.
 ### Versioning Strategy — L3 (2026-04-08)
 - Added `CONTRIBUTING.md` with SemVer strategy, release checklist, branch naming, conventional commits, and PR requirements.
 
+### WASM Instant Fix (2026-04-08)
+- Replaced `std::time::Instant` with `web_time::Instant` in `engine.rs` — `std::time::Instant::now()` traps on `wasm32-unknown-unknown` (no system clock).
+- Added `web-time = "1"` crate dependency (uses `performance.now()` in browser, `std::time::Instant` on native).
+- All 105 tests pass unchanged on native; WASM runtime panic resolved.
+
+### Color Forensic Layer (2026-04-08)
+- Added two new discriminative features for AI-generated image detection:
+  - **Color channel noise correlation**: exploits independent per-channel sensor noise in real cameras vs correlated noise in AI generators (shared latent space).
+  - **Noise-brightness dependency**: real cameras follow shot-noise physics (variance ∝ brightness); AI noise has no brightness dependency.
+- Features feed an additive "color boost" pathway that bypasses existing suppression mechanism.
+- Grayscale images detected and gated (channel_noise_corr=0.0, noise_brightness_corr=0.5 neutral).
+- Threshold adjustments: `SYNTHETIC_MIN_THRESHOLD` 0.66→0.58, `SYNTHETIC_MARGIN_THRESHOLD` 0.12→0.10, suppression floor 0.45→0.55.
+- Synthetic classification branch now uses `derive_reason_codes()` for consistency with other branches.
+- `CalibrationConfig` expanded from 93→100 fields (7 new color forensic parameters).
+- `decode_image` now returns `(GrayImage, RgbImage, is_jpeg)` to support color analysis.
+- 105 tests pass, clippy clean.
+
+### GitHub & Vercel Deployment (2026-04-08)
+- Created GitHub repo: https://github.com/hootappi/ImageProof
+- Deployed to Vercel: https://imageproof.vercel.app
+- WASM artifacts committed to git for zero-Rust Vercel builds.
+
 ## Open Items (Pending)
-- **All milestones M0–M4 COMPLETE** — every backlog item (C1–C5, H1–H8, M1–M9, L1–L5, F1, F2) is resolved.
+- Calibrate color forensic thresholds with real AI-generated image dataset (DALL-E, Midjourney, Stable Diffusion, Flux).
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
-- Prepare Vercel deployment path for browser/WASM app delivery.
 - Plan user feedback collection and triage loop for calibration iterations.

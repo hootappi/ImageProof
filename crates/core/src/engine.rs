@@ -237,10 +237,9 @@ fn verify_deep_heuristic(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<
         - cfg.syn_supp_hf_ratio * metrics.high_freq_ratio_score)
         .clamp(cfg.syn_supp_floor, 1.0);
     let synthetic_likelihood = {
-        // Color forensics boost: additive pathway that bypasses suppression.
-        // Real cameras have independent per-channel noise (low channel_noise_corr)
-        // and shot-noise brightness dependency (high noise_brightness_corr).
-        // AI images have correlated channels and flat noise-brightness response.
+        // Color forensics boost: additive to synthetic_base but modulated by
+        // physical suppression so strong camera signals (PRNU, consistency)
+        // dampen the color cue — prevents false positives on real photos.
         let color_evidence = (cfg.color_synth_w_channel_corr * metrics.channel_noise_corr
             + cfg.color_synth_w_noise_bright_inv * (1.0 - metrics.noise_brightness_corr).max(0.0))
             .clamp(0.0, 1.0);
@@ -249,7 +248,7 @@ fn verify_deep_heuristic(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<
         } else {
             0.0
         };
-        (synthetic_base * synthetic_suppression + color_boost).clamp(0.0, 1.0)
+        ((synthetic_base + color_boost) * synthetic_suppression).clamp(0.0, 1.0)
     };
 
     // Edited-base fusion weights — normalized to sum = 1.00 (C1 fix).
