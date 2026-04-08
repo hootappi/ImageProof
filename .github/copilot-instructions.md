@@ -263,7 +263,77 @@ Starting workspace setup for ImageProof application.
 - Fallback logic ensures every result has at least one reason code.
 - Added 7 new unit tests covering all derive_reason_codes paths and integration verification.
 
+### Web Worker Offload — H8 (2026-02-26)
+- Created `web/src/worker.js` Web Worker that loads WASM independently and runs `verify_image` off the main thread.
+- Main thread posts image bytes to Worker via `postMessage` with `Transferable` buffer; Worker returns result.
+- Falls back to synchronous main-thread execution if Worker initialization fails.
+- Updated CSP in `index.html` and `vercel.json`: `connect-src 'self'`, `worker-src 'self'` (still blocks all external requests).
+
+### f64 Accumulation Precision — M5 (2026-02-26)
+- Upgraded `compute_shifted_residual_corr` and `block_corr` to use `f64` accumulators for all sum/mean/correlation computations.
+- Final correlation result cast to `f32` at output.
+- Prevents catastrophic cancellation and precision loss on large images (>10MP).
+- All 98 existing tests pass unchanged.
+
+### Indeterminate Recalibration (2026-02-26)
+- Tuned `INDETERMINATE_CEILING` from 0.30 to 0.32 and `INDETERMINATE_MIN_SPREAD` from 0.08 to 0.12 for better separation.
+
+### Deduplicate Pixel Iteration — M4 (2026-02-26)
+- Added `compute_pixel_stats_and_residual` unified pass in `signal.rs`, computing noise, edge, block metrics, and residual map in a single pixel iteration.
+- Eliminated redundant pixel traversal from separate signal-metrics and residual-map functions.
+
+### Format Restriction — L5 (2026-02-26)
+- Added explicit format allowlist (JPEG, PNG, WebP) in `decode_image`.
+- Unknown/unsupported formats (BMP, GIF, TIFF, etc.) rejected with `UnsupportedFormat` error.
+- Added `verify_bmp_rejected_as_unsupported` unit test.
+
+### Remove HardwareTier — L4 (2026-02-26)
+- Removed unused `HardwareTier` enum from `model.rs` and `VerifyRequest`.
+- Simplified `verify()` and `verify_bytes()` call sites and WASM bindings.
+
+### Per-Layer Module Extraction — M1 (2026-02-26)
+- Extracted `signal.rs`, `physical.rs`, `hybrid.rs`, `semantic.rs` from monolithic `engine.rs`.
+- Engine orchestrates layers via `pub(crate)` function calls.
+- Reduced `engine.rs` from ~2300 to ~1750 lines.
+- Made `sample_rect`, `fft2d_magnitude` (signal), `block_corr` (physical) `pub(crate)` for cross-module test access.
+
+### Runtime TOML Config — M3 (2026-02-26)
+- Added `CalibrationConfig` struct (93 fields, `#[derive(Deserialize)]`, `#[serde(default)]`) to `config.rs`.
+- Implemented `Default for CalibrationConfig` mapping every field to its compile-time constant.
+- Added `verify_bytes_with_config(bytes, mode, &CalibrationConfig)` as the primary configurable entry point.
+- Threaded `&CalibrationConfig` through all engine functions: `decode_image`, `verify_fast`, `verify_deep_heuristic`, `compute_layer_contributions`, `derive_reason_codes`.
+- CLI: added `--config <path.toml>` flag with `parse_config_arg()` and `filter_positional_args()`.
+- Added `toml = "0.8"` workspace dependency.
+- Created `config.example.toml` reference file with all 93 fields commented out showing defaults.
+- Added 6 M3 integration tests (default equivalence, threshold shifting, reason codes, input limits, dimension limits, fast mode).
+- Total: 105 tests (81 core + 24 CLI), clippy clean.
+
+### Analysis Progress Indicator — F1 (2026-04-08)
+- Added state-driven progress indicator (idle/running/completed/failed) in web UI.
+- Real elapsed-time counter updated at 100ms intervals via `performance.now()`.
+- Indeterminate pulse animation during analysis, green/red completion states.
+- Duplicate-analysis prevention via running-state guard on verify button.
+
+### Privacy-Preserving Feedback Learning — F2 (2026-04-08)
+- Added post-analysis feedback UI (correct/incorrect buttons + classification correction selector).
+- Feedback persisted in `localStorage` under `imageproof_feedback_log` (rolling 500-entry window).
+- Optional opt-in anonymous diagnostic sharing (checkbox, defaults off, persisted).
+- Diagnostic payload contains scores, classification, reason codes, timing, feedback only — no image data.
+- Privacy model documented in `docs/FEEDBACK_SYSTEM.md` with data schema, storage model, transmission model, and audit checklist.
+
+### Consent Prompt — L1 (2026-04-08)
+- `start-web.ps1` now lists required installations and prompts for confirmation before invoking `winget` or `cargo install`.
+
+### Prettier Config — L2 (2026-04-08)
+- Added `.prettierrc` config in `web/`.
+- Added `npm run format` and `npm run format:check` scripts.
+- Installed `prettier` as devDependency; formatted all JS/CSS/HTML files.
+
+### Versioning Strategy — L3 (2026-04-08)
+- Added `CONTRIBUTING.md` with SemVer strategy, release checklist, branch naming, conventional commits, and PR requirements.
+
 ## Open Items (Pending)
+- **All milestones M0–M4 COMPLETE** — every backlog item (C1–C5, H1–H8, M1–M9, L1–L5, F1, F2) is resolved.
 - Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
 - Prepare Vercel deployment path for browser/WASM app delivery.
 - Plan user feedback collection and triage loop for calibration iterations.

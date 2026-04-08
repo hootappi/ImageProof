@@ -1,6 +1,6 @@
 # Operations — ImageProof
 
-> Last updated: 2026-02-24 (post-review hardening baseline)
+> Last updated: 2026-04-08 (all hardening findings resolved)
 
 ## Deployment Model
 
@@ -10,8 +10,8 @@ ImageProof is a **local-only development tool** with two runtime paths:
 
 | Path | Environment | Entry Point | Status |
 |------|-------------|-------------|--------|
-| **Web (WASM)** | Browser (localhost) | `web/` via Vite dev server | Dev-only, no production deployment |
-| **CLI (native)** | Windows terminal | `cargo run -p imageproof-cli` | Dev/evaluation tool |
+| **Web (WASM)** | Browser | `web/` via Vite (dev) or Vercel (prod) | Dev server operational; Vercel deployment pending |
+| **CLI (native)** | Windows/Linux terminal | `cargo run -p imageproof-cli` | Operational with stress-test harness |
 
 **No production deployment exists.** Vercel deployment is planned but deferred.
 
@@ -37,10 +37,10 @@ npm run dev -- --host 127.0.0.1 --port 4173
 
 ### Future Production Path (Vercel)
 
-When deployed:
+Ready for deployment:
 - Static site hosting (Vite `dist/` output + `pkg/` WASM artifacts)
 - No server-side component — all processing client-side
-- CSP headers must be configured in `vercel.json` (not yet created)
+- CSP headers configured in `vercel.json` with hardening headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`)
 - HTTPS enforced by platform
 
 ## Observability
@@ -50,8 +50,10 @@ When deployed:
 | Capability | Status | Notes |
 |------------|--------|-------|
 | Structured logging | ❌ Missing | No `tracing` or `log` crate in Rust; no console.log strategy in JS |
-| Per-layer timing | ❌ Fabricated | `latency_ms` in output is a formula, not measurement (finding C2) |
-| Error reporting | Minimal | Browser: errors shown in result panel. CLI: stderr. No aggregation. |
+| Per-layer timing | ✅ Real measurement | `Instant::now()` per-layer wall-clock timing (C2 resolved) |
+| Error reporting | Improved | Browser: panic hook surfaces readable messages (H7). CLI: stderr. No aggregation. |
+| Progress indicator | ✅ Implemented | State-driven UI progress (idle/running/completed/failed) with real elapsed time (F1) |
+| User feedback | ✅ Implemented | Post-analysis feedback UI with localStorage persistence (F2) |
 | Metrics/counters | ❌ Missing | No classification distribution tracking |
 | Health checks | N/A | No backend to monitor |
 
@@ -60,44 +62,41 @@ When deployed:
 | Symptom | Where to Check | Likely Cause |
 |---------|---------------|--------------|
 | WASM init fails | Browser console (F12) | Missing `pkg/` files, CORS issue, or wasm-pack build failure |
-| "Verification failed" in UI | Browser console | Image decode error, WASM panic (opaque `RuntimeError: unreachable`) |
-| Browser tab crashes | Task manager | OOM from oversized image (no dimension limits — finding C5) |
+| "Verification failed" in UI | Browser console | Image decode error or unsupported format (JPEG/PNG/WebP only). Panic hook shows readable message. |
+| Browser tab crashes | Task manager | Image may exceed 50 MB file or 16384 dimension limit (guards in place; check console for rejection) |
 | Stress test panics | Terminal stderr | Edge-case image triggering unwrap or index OOB |
 | `npm run check` fails | Terminal | `wasm-pack` not installed, Rust compile error, or missing wasm32 target |
 | Incorrect classification | Stress test report | Algorithm tuning issue — check per-class accuracy and fusion weights |
 
-### Recommended Observability Additions (Hardening)
+### Recommended Observability Additions
 
-1. Add `console_error_panic_hook` in WASM bindings (finding H7) — makes panics debuggable.
-2. Replace fabricated `latency_ms` with `std::time::Instant` / `web_sys::Performance` measurements (finding C2).
-3. Add `tracing` crate to core for structured per-layer debug logging (gated behind feature flag).
-4. Add classification-outcome counters in web UI for local session diagnostics.
+1. Add `tracing` crate to core for structured per-layer debug logging (gated behind feature flag).
+2. Add classification-outcome counters in web UI for local session diagnostics.
+3. Add aggregate diagnostic reporting from F2 feedback data (opt-in anonymous sharing).
 
 ## Failure Modes and Runbooks
 
 ### FM1: OOM on Large Image
 
 **Trigger**: User drops image with extreme decoded dimensions (e.g., 65535×65535).
-**Impact**: Browser tab crash (WASM), or process killed (CLI).
-**Current mitigation**: None.
-**Runbook**: Refresh browser tab. In CLI, skip the offending image.
-**Fix**: Implement input dimension and file-size limits (finding C5). Reject before decode.
+**Impact**: Rejected before decode with `DimensionTooLarge` or `InputTooLarge` error.
+**Current mitigation**: 50 MB file size limit (pre-decode) + 16384 max dimension (post-decode). Both enforced in core engine.
+**Runbook**: Error message displayed in result panel. No crash expected.
 
-### FM2: WASM Panic (Opaque Crash)
+### FM2: WASM Panic (Unexpected Error)
 
 **Trigger**: Unexpected Rust panic inside WASM (e.g., index OOB, division by zero in edge case).
-**Impact**: JS receives `RuntimeError: unreachable` with no stack trace.
-**Current mitigation**: Caught by `try/catch` in `main.js`, displayed as "Verification failed".
-**Runbook**: Check browser console for the opaque error. Reproduce with the same image in CLI for better diagnostics.
-**Fix**: Add `console_error_panic_hook` (finding H7).
+**Impact**: JS receives error with readable message and stack trace via `console_error_panic_hook`.
+**Current mitigation**: Panic hook installed (H7). Caught by `try/catch` in `main.js`, displayed as error in result panel.
+**Runbook**: Check browser console (F12) for the full error message. Reproduce with the same image in CLI for detailed diagnostics.
 
 ### FM3: Incorrect Classification
 
 **Trigger**: Algorithm produces false positive (authentic labeled as edited/synthetic) or false negative.
 **Impact**: User receives wrong forensic conclusion.
-**Current mitigation**: Conservative tuning (v1+v2 FP reduction). Stress test harness available.
-**Runbook**: Record the image (or its hash). Run stress test. Check per-class accuracy. Adjust fusion thresholds if systematic.
-**Fix**: Normalize fusion weights (finding C1), implement Indeterminate gate (finding C3), expand calibration dataset.
+**Current mitigation**: Fusion weights normalized to sum = 1.0 (C1). Indeterminate classification gate emits uncertain result when evidence is insufficient (C3). Stress test harness available. User feedback system (F2) captures corrections.
+**Runbook**: Record the image (or its hash). Provide feedback via the web UI (F2). Run stress test. Check per-class accuracy. Adjust thresholds via `--config` if systematic.
+**Fix**: Expand calibration dataset and tune thresholds iteratively.
 
 ### FM4: Stress Test Crashes Mid-Run
 
@@ -132,19 +131,24 @@ Not applicable. ImageProof:
 
 ### Current State
 
-There are **no runtime configuration options**. All parameters are compile-time constants:
+All 93 calibration parameters are defined as compile-time constants in `crates/core/src/config.rs` and can be overridden at runtime via an optional TOML file using `CalibrationConfig`.
 
-| Parameter | Location | Value |
-|-----------|----------|-------|
-| `SYNTHETIC_MIN_THRESHOLD` | `crates/core/src/engine.rs` | 0.66 |
-| `SYNTHETIC_MARGIN_THRESHOLD` | `crates/core/src/engine.rs` | 0.12 |
-| `SUSPICIOUS_MIN_THRESHOLD` | `crates/core/src/engine.rs` | 0.62 |
-| `MIN_SAMPLES_PER_CLASS` | `crates/cli/src/main.rs` | 25 |
-| `MAX_AUTHENTIC_FALSE_POSITIVE_RATE` | `crates/cli/src/main.rs` | 0.01 |
-| `MAX_SUSPICIOUS_MISS_RATE` | `crates/cli/src/main.rs` | 0.10 |
-| `MAX_SYNTHETIC_MISS_RATE` | `crates/cli/src/main.rs` | 0.10 |
+```powershell
+cargo run -p imageproof-cli -- stress <dataset> --config my_config.toml
+```
 
-### Recommended Additions (Hardening)
+See `config.example.toml` for the complete reference with all fields and defaults.
 
-- `MAX_IMAGE_DIMENSION` and `MAX_FILE_SIZE_BYTES` constants (finding C5).
-- Runtime config struct loaded from env or TOML for threshold tuning without recompilation (finding M3).
+| Key Parameter | Location | Default |
+|---------------|----------|---------|
+| `synthetic_min_threshold` | `config.rs` | 0.66 |
+| `synthetic_margin_threshold` | `config.rs` | 0.12 |
+| `suspicious_min_threshold` | `config.rs` | 0.62 |
+| `indeterminate_ceiling` | `config.rs` | 0.32 |
+| `max_file_size_bytes` | `config.rs` | 52428800 (50 MB) |
+| `max_image_dimension` | `config.rs` | 16384 |
+| `fft_window_cap` | `config.rs` | 256 |
+| `min_samples_per_class` | `cli/main.rs` | 25 |
+| `max_authentic_false_positive_rate` | `cli/main.rs` | 0.01 |
+| `max_suspicious_miss_rate` | `cli/main.rs` | 0.10 |
+| `max_synthetic_miss_rate` | `cli/main.rs` | 0.10 |

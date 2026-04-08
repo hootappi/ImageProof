@@ -1,6 +1,6 @@
 # Architecture — ImageProof
 
-> Last updated: 2026-02-24 (post-review hardening baseline)
+> Last updated: 2026-02-26 (post M3 — per-layer modules + runtime config)
 
 ## Overview
 
@@ -14,14 +14,25 @@ Primary runtime target is browser via Rust→WASM. A native CLI path exists for 
 ```
 ImageProof/
 ├── crates/
-│   ├── core/           # Domain types (model.rs) + verification engine (engine.rs)
+│   ├── core/           # Domain types + verification engine
+│   │   └── src/
+│   │       ├── config.rs    # 93 named constants + CalibrationConfig struct
+│   │       ├── engine.rs    # Orchestration, decode, fusion, classification
+│   │       ├── lib.rs       # Public API surface
+│   │       ├── model.rs     # Domain types (VerificationResult, enums, etc.)
+│   │       ├── signal.rs    # Signal layer: noise, edge, block, FFT
+│   │       ├── physical.rs  # Physical layer: PRNU proxy, cross-region
+│   │       ├── hybrid.rs    # Hybrid layer: local inconsistency, seam anomaly
+│   │       └── semantic.rs  # Semantic layer: repetition, gradient entropy
 │   ├── wasm-bindings/  # Thin wasm-bindgen bridge → browser
 │   └── cli/            # Native CLI: launch scaffold + stress-test harness
 ├── web/                # Vite frontend (vanilla JS, CSS, HTML)
 │   ├── src/main.js     # UI logic, drag-drop, verify action, result formatting
+│   ├── src/worker.js   # Web Worker for off-main-thread WASM execution
 │   ├── src/styles.css
 │   ├── index.html
 │   └── pkg/            # wasm-pack output (gitignored, generated)
+├── config.example.toml # Reference TOML with all 93 calibration fields
 ├── start-web.ps1       # One-click dev launcher (Windows)
 ├── start-web.cmd       # Double-click wrapper for start-web.ps1
 └── Cargo.toml          # Workspace root
@@ -31,13 +42,14 @@ ImageProof/
 
 ### `imageproof-core` — Verification Engine
 
-**Files**: `crates/core/src/engine.rs` (~858 lines), `crates/core/src/model.rs`
+**Files**: `crates/core/src/engine.rs` (~1800 lines), `config.rs` (~370 lines), `signal.rs`, `physical.rs`, `hybrid.rs`, `semantic.rs`, `model.rs`
 
 Responsibilities:
-1. Decode image bytes to grayscale (`image` crate, auto-format detection).
-2. Extract signal metrics across four analysis layers.
+1. Decode image bytes to grayscale (`image` crate, auto-format detection; JPEG/PNG/WebP only).
+2. Extract signal metrics across four analysis layers (each in its own module).
 3. Fuse per-layer scores into synthetic/edited/authentic likelihoods.
 4. Classify and emit structured `VerificationResult`.
+5. Accept optional `CalibrationConfig` for runtime threshold overrides.
 
 #### Detection Layers
 
@@ -55,7 +67,10 @@ Scores are combined via weighted linear sums (clamped to [0,1]) with multiplicat
 - `edited_likelihood = clamp(edited_base × edited_suppression)`
 - Classification thresholds: `SYNTHETIC_MIN_THRESHOLD`, `SYNTHETIC_MARGIN_THRESHOLD`, `SUSPICIOUS_MIN_THRESHOLD`, `INDETERMINATE_CEILING`, `INDETERMINATE_MIN_SPREAD`
 
+All weights, thresholds, and suppression parameters are defined as compile-time constants in `config.rs` and can be overridden at runtime via `CalibrationConfig` (TOML-loadable, `#[serde(default)]`).
+
 **RESOLVED (C1)**: Fusion weights normalized to sum = 1.00 per group (synthetic_base, edited_base, authentic_likelihood). Block-artifact NaN fixed for flat images.
+**RESOLVED (M3)**: Runtime config threading via `verify_bytes_with_config()`. CLI `--config path.toml` support.
 
 ### `imageproof-wasm-bindings` — Browser Bridge
 
@@ -63,16 +78,16 @@ Scores are combined via weighted linear sums (clamped to [0,1]) with multiplicat
 
 Thin adapter: receives `&[u8]` from JS, copies into `VerifyRequest`, calls `verify()`, serializes result to `JsValue` via `serde-wasm-bindgen`.
 
-**KNOWN ISSUE (M6)**: Forces a full buffer copy (`to_vec()`) at the entry point.
+**KNOWN ISSUE (M6)**: ~~Forces a full buffer copy (`to_vec()`) at the entry point.~~ **RESOLVED**: `verify_bytes(&[u8])` borrows data directly; WASM bindings pass `&[u8]` from wasm-bindgen with no copy.
 **RESOLVED (H7)**: `#[wasm_bindgen(start)]` installs `console_error_panic_hook` — Rust panics now surface readable messages in browser DevTools.
 
 ### `imageproof-cli` — Native CLI
 
-**File**: `crates/cli/src/main.rs` (381 lines)
+**File**: `crates/cli/src/main.rs` (~700 lines)
 
 Two modes:
 1. **Default**: prints launch confirmation.
-2. **`stress <dataset_root>`**: batch evaluation across `authentic/`, `edited/`, `synthetic/` folders with per-class accuracy, perturbation tagging, and acceptance quality-bar gate.
+2. **`stress <dataset_root> [--config path.toml]`**: batch evaluation across `authentic/`, `edited/`, `synthetic/` folders with per-class accuracy, perturbation tagging, acceptance quality-bar gate, and optional runtime calibration overrides.
 
 **KNOWN ISSUE (H6)**: ~~Follows symlinks without boundary checks.~~ **RESOLVED** — `collect_recursive` uses `entry.file_type().is_symlink()` to skip symlinks with a warning.
 
@@ -82,9 +97,9 @@ Two modes:
 
 Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result display.
 
-**Security (M9)**: CSP meta tag in `index.html` and `vercel.json` HTTP headers enforce `default-src 'none'`, `connect-src 'none'`, `script-src 'self' 'wasm-unsafe-eval'`. No external network requests permitted.
+**Security (M9)**: CSP meta tag in `index.html` and `vercel.json` HTTP headers enforce `default-src 'none'`, `connect-src 'self'`, `worker-src 'self'`, `script-src 'self' 'wasm-unsafe-eval'`. No external network requests permitted.
 
-**KNOWN ISSUE (H8)**: `verify_image` runs synchronously on main thread, blocking UI.
+**RESOLVED (H8)**: `verify_image` now runs in a dedicated Web Worker (`src/worker.js`). Main thread posts image bytes to the Worker, which loads WASM and returns results via `postMessage`. Falls back to synchronous main-thread execution if Worker init fails.
 
 ## Data Flow
 
@@ -93,6 +108,9 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
     │
     ▼
 [JS: File → ArrayBuffer → Uint8Array]
+    │
+    ▼
+[Web Worker: postMessage(bytes) → verify_image(bytes, false)]  (H8: off main thread)
     │
     ▼
 [WASM: verify_image(bytes, false)]
@@ -106,10 +124,10 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
     ├──► compute_signal_metrics(gray)
     │       ├── noise/edge/block (pixel iteration)
     │       ├── compute_residual_map → interior-only (H4: no border zeros)
-    │       ├── compute_fft_signal_features (64×64 cap)     ← KNOWN ISSUE H3
-    │       ├── compute_prnu_proxy_metrics (block correlation)
+    │       ├── compute_fft_signal_features (cap = min(dim, 256), configurable)
+    │       ├── compute_prnu_proxy_metrics (block correlation, M5: f64 accumulators)
     │       ├── compute_hybrid_metrics (tile energy + seam scan)
-    │       └── compute_semantic_metrics (shifted correlation + gradient entropy)
+    │       └── compute_semantic_metrics (shifted correlation + gradient entropy, M5: f64 accumulators)
     │
     ▼
 [Fusion: weighted sum → suppression → classification gates]
@@ -132,7 +150,7 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 │  - Empty check: ✓                           │
 │  - Max dimensions: ✓ (16384, C5 resolved)  │
 │  - Max file size: ✓ (50 MB, C5 resolved)    │
-│  - Format restriction: partial (guessed)    │
+│  - Format restriction: ✓ (JPEG/PNG/WebP, L5)  │
 └──────────────────────┬──────────────────────┘
                        │
                        ▼
@@ -156,11 +174,12 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | Decision | Rationale | Tradeoff |
 |----------|-----------|----------|
 | Heuristic-only (no ML model) | Zero model download, predictable latency, no GPU dependency | Lower accuracy ceiling than trained classifiers |
-| All-in-one engine.rs | Rapid iteration during prototyping phase | Monolithic, hard to test layers independently (M1) |
-| Browser-first WASM target | Meets privacy requirement (no upload) | Main-thread blocking (H8), limited compute budget |
+| All-in-one engine.rs | ~~Rapid iteration during prototyping phase~~ | ~~Monolithic, hard to test layers independently (M1)~~ **RESOLVED**: Per-layer modules extracted (signal, physical, hybrid, semantic) |
+| Browser-first WASM target | Meets privacy requirement (no upload) | ~~Main-thread blocking (H8)~~ RESOLVED: Web Worker offload with fallback, limited compute budget |
 | Grayscale-only analysis | Halves memory, simplifies math | Loses color-channel forensic signals |
-| 64×64 FFT window cap | Bounded compute cost | Misses fine spectral artifacts (H3) |
-| Fabricated latency values | Placeholder for future instrumentation | ~~Produces misleading diagnostics (C2)~~ RESOLVED: real `Instant::now()` timing |
+| 64×64 FFT window cap | ~~Bounded compute cost~~ | ~~Misses fine spectral artifacts (H3)~~ **RESOLVED**: cap raised to 256, configurable via `CalibrationConfig.fft_window_cap` |
+| Fabricated latency values | ~~Placeholder for future instrumentation~~ | ~~Produces misleading diagnostics (C2)~~ RESOLVED: real `Instant::now()` timing |
+| Hard-coded thresholds | ~~Rapid iteration~~ | ~~No runtime tuning without recompilation~~ **RESOLVED (M3)**: 93-field `CalibrationConfig` loadable from TOML; CLI `--config` flag |
 
 ## Known Risks — Summary
 
@@ -169,9 +188,9 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | C1 | Fusion weights >1.0 — unstable scoring | **RESOLVED** — weights normalized to sum = 1.00 |
 | C2 | Fabricated latency data | **RESOLVED** — real `Instant::now()` per-layer timing |
 | C3 | Indeterminate classification dead code | **RESOLVED** — quad-state classification with Indeterminate branch |
-| C4 | Zero automated tests | **RESOLVED** — 78 tests + CI pipeline |
+| C4 | Zero automated tests | **RESOLVED** — 105 tests + CI pipeline |
 | C5 | Unbounded memory from large images | **RESOLVED** — 50 MB file + 16384 dimension limits |
-| H1–H8 | Various high-priority issues | H1 **RESOLVED** (linear confidence formula), H2 **RESOLVED** (JPEG format gating), H4 **RESOLVED** (residual border exclusion), H5 **RESOLVED** (stem-only perturbation tagging), H6 **RESOLVED** (symlink protection), H7 **RESOLVED** (panic hook); remainder unmitigated — see EXECUTION_PLAN.md |
+| H1–H8 | Various high-priority issues | H1 **RESOLVED** (linear confidence formula), H2 **RESOLVED** (JPEG format gating), H4 **RESOLVED** (residual border exclusion), H5 **RESOLVED** (stem-only perturbation tagging), H6 **RESOLVED** (symlink protection), H7 **RESOLVED** (panic hook), H8 **RESOLVED** (Web Worker offload with fallback) |
 | M9 | No Content-Security-Policy | **RESOLVED** — CSP meta tag + Vercel header config enforce local-only execution |
 | M7 | Authentic always emits PhyPrnu001 | **RESOLVED** — reason codes driven by per-layer contribution scores above threshold (0.15) |
 

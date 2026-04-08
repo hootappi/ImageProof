@@ -15,14 +15,6 @@ pub enum ExecutionMode {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum HardwareTier {
-    CpuOnly,
-    CpuSimd,
-    WebGpu,
-    Native,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ReasonCode {
     SysInsuff001,
     SysDegrad001,
@@ -71,5 +63,4 @@ pub struct VerificationResult {
 pub struct VerifyRequest {
     pub image_bytes: Vec<u8>,
     pub execution_mode: ExecutionMode,
-    pub hardware_tier: HardwareTier,
 }

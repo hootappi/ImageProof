@@ -1,0 +1,140 @@
+# ImageProof — Calibration Configuration Reference
+#
+# Copy this file to a custom path and uncomment fields to override defaults.
+# Pass to CLI: cargo run -p imageproof-cli -- stress <dataset> --config my.toml
+#
+# All values shown are the compiled-in defaults. Any field omitted from your
+# TOML file will use the default automatically (#[serde(default)]).
+
+# ── Classification thresholds ────────────────────────────────────────────
+# synthetic_min_threshold = 0.66
+# synthetic_margin_threshold = 0.12
+# suspicious_min_threshold = 0.62
+# indeterminate_ceiling = 0.32
+# indeterminate_min_spread = 0.12
+# indeterminate_score = 0.50
+
+# ── Reason code thresholds ───────────────────────────────────────────────
+# reason_code_contribution_threshold = 0.15
+# semantic_cue_escalation_threshold = 0.55
+# semantic_repetition_escalation_threshold = 0.50
+# semantic_entropy_escalation_ceiling = 0.45
+
+# ── Input limits ─────────────────────────────────────────────────────────
+# max_file_size_bytes = 52428800
+# max_image_dimension = 16384
+
+# ── FFT parameters ───────────────────────────────────────────────────────
+# fft_window_cap = 256
+# fft_min_dim = 16
+# fft_high_freq_radius = 0.62
+# fft_peak_normalization = 8.0
+
+# ── Deep-mode fusion: synthetic base weights (sum = 1.00) ────────────────
+# syn_w_block_artifact = 0.18
+# syn_w_noise_inv = 0.15
+# syn_w_edge_inv = 0.08
+# syn_w_spectral_peak = 0.16
+# syn_w_hf_ratio_inv = 0.12
+# syn_w_prnu_inv = 0.09
+# syn_w_consistency_inv = 0.07
+# syn_w_hybrid_local = 0.04
+# syn_w_hybrid_seam = 0.02
+# syn_w_semantic_cue = 0.09
+
+# ── Deep-mode fusion: synthetic suppression ──────────────────────────────
+# syn_supp_prnu = 0.22
+# syn_supp_consistency = 0.14
+# syn_supp_hf_ratio = 0.08
+# syn_supp_floor = 0.45
+
+# ── Deep-mode fusion: edited base weights (sum = 1.00) ──────────────────
+# edt_w_block_var_cv = 0.26
+# edt_w_edge = 0.05
+# edt_w_block_artifact = 0.13
+# edt_w_spectral_peak = 0.07
+# edt_spectral_damp = 0.7
+# edt_w_consistency_inv = 0.11
+# edt_w_prnu_inv = 0.04
+# edt_w_hybrid_local = 0.18
+# edt_w_hybrid_seam = 0.13
+# edt_w_semantic_cue = 0.03
+
+# ── Deep-mode fusion: edited suppression ─────────────────────────────────
+# edt_supp_prnu = 0.20
+# edt_supp_consistency = 0.12
+# edt_supp_floor = 0.55
+
+# ── Deep-mode fusion: authentic complement ───────────────────────────────
+# auth_w_synthetic = 0.55
+# auth_w_edited = 0.45
+
+# ── Score mapping ────────────────────────────────────────────────────────
+# synthetic_score_scale = 0.9
+# synthetic_score_min = 0.05
+# synthetic_score_max = 0.40
+# suspicious_score_base = 0.35
+# suspicious_score_range = 0.25
+# suspicious_score_min = 0.35
+# suspicious_score_max = 0.60
+# authentic_score_base = 0.62
+# authentic_score_range = 0.33
+# authentic_score_min = 0.62
+# authentic_score_max = 0.95
+
+# ── Layer contribution weights ───────────────────────────────────────────
+# lc_signal_block_art = 0.24
+# lc_signal_noise_inv = 0.16
+# lc_signal_edge_inv = 0.12
+# lc_signal_spectral = 0.24
+# lc_signal_hf_inv = 0.24
+# lc_physical_prnu_inv = 0.50
+# lc_physical_consist_inv = 0.50
+# lc_hybrid_local = 0.58
+# lc_hybrid_seam = 0.42
+
+# ── Pixel-level metric normalization ─────────────────────────────────────
+# noise_normalization = 50.0
+# edge_normalization = 50.0
+# block_artifact_normalization = 0.8
+# block_var_cv_normalization = 1.2
+# block_var_block_size = 32
+
+# ── PRNU proxy parameters ────────────────────────────────────────────────
+# prnu_block_size = 24
+# prnu_plaus_offset = 0.02
+# prnu_plaus_scale = 0.15
+# prnu_consist_scale = 0.20
+# prnu_coverage_denom = 3500.0
+# prnu_coverage_floor = 0.25
+
+# ── Hybrid parameters ────────────────────────────────────────────────────
+# hybrid_min_dim = 24
+# hybrid_tile_min = 12
+# hybrid_tile_max = 32
+# hybrid_energy_floor = 0.0001
+# hybrid_seam_normalization = 2.4
+# hybrid_coverage_denom = 2500.0
+# hybrid_coverage_floor = 0.05
+
+# ── Semantic parameters ──────────────────────────────────────────────────
+# semantic_min_dim = 24
+# semantic_gradient_bins = 8
+# semantic_rep_offset = 0.05
+# semantic_rep_scale = 0.25
+# semantic_cue_w_repetition = 0.42
+# semantic_cue_w_entropy_inv = 0.30
+
+# ── Fast-mode fusion weights ─────────────────────────────────────────────
+# fast_syn_w_block_art = 0.30
+# fast_syn_w_noise_inv = 0.25
+# fast_syn_w_edge_inv = 0.15
+# fast_syn_w_block_var = 0.30
+# fast_edt_w_block_var = 0.35
+# fast_edt_w_block_art = 0.25
+# fast_edt_w_edge = 0.20
+# fast_edt_w_noise = 0.20
+# fast_lc_block_art = 0.35
+# fast_lc_noise_inv = 0.25
+# fast_lc_edge_inv = 0.20
+# fast_lc_block_var = 0.20

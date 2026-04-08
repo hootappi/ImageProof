@@ -1,5 +1,9 @@
 :root {
-  font-family: Inter, Segoe UI, Arial, sans-serif;
+  font-family:
+    Inter,
+    Segoe UI,
+    Arial,
+    sans-serif;
   color: #eaf1ff;
   background: #0a1b3d;
 }
@@ -60,7 +64,9 @@ h2 {
   text-align: center;
   background: rgba(255, 255, 255, 0.06);
   cursor: pointer;
-  transition: border-color 120ms ease, background-color 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 
 .drop-zone.has-image {
@@ -162,4 +168,159 @@ h2 {
   color: #f2f6ff;
   font-size: 1rem;
   line-height: 1.4;
+}
+
+/* ── F1: Progress indicator ─────────────────────────── */
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.progress-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.progress-timer {
+  font-size: 0.85rem;
+  color: #b7c9ef;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #6ea8fe, #aec8ff);
+  border-radius: 3px;
+  transition: width 200ms ease;
+}
+
+.progress-bar.indeterminate {
+  width: 100%;
+  animation: progress-pulse 1.5s ease-in-out infinite;
+}
+
+.progress-bar.completed {
+  width: 100%;
+  background: #4ade80;
+  animation: none;
+}
+
+.progress-bar.failed {
+  width: 100%;
+  background: #f87171;
+  animation: none;
+}
+
+@keyframes progress-pulse {
+  0% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
+/* ── F2: Feedback section ───────────────────────────── */
+
+.feedback-prompt {
+  margin: 0 0 0.55rem;
+  font-size: 0.95rem;
+  color: #c4d6ff;
+}
+
+.feedback-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.feedback-btn {
+  border: 1px solid rgba(202, 219, 255, 0.5);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaf1ff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.feedback-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.feedback-btn.selected {
+  border-color: #6ea8fe;
+  background: rgba(110, 168, 254, 0.18);
+}
+
+.feedback-submit {
+  background: #dce8ff;
+  color: #0b1f46;
+}
+
+.feedback-submit:hover {
+  background: #cde0ff;
+}
+
+.correction-panel {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.correction-label {
+  font-size: 0.88rem;
+  color: #b7c9ef;
+  white-space: nowrap;
+}
+
+.correction-select {
+  flex: 1;
+  padding: 0.42rem 0.6rem;
+  border: 1px solid rgba(202, 219, 255, 0.5);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaf1ff;
+  font-size: 0.92rem;
+}
+
+.feedback-ack {
+  font-size: 0.9rem;
+  color: #4ade80;
+  margin-bottom: 0.4rem;
+}
+
+.diagnostic-row {
+  margin-top: 0.4rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(205, 221, 255, 0.12);
+}
+
+.diagnostic-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  color: #b7c9ef;
+  cursor: pointer;
+}
+
+.diagnostic-label input[type="checkbox"] {
+  accent-color: #6ea8fe;
 }

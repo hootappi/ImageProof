@@ -1,5 +1,5 @@
 use imageproof_core::{
-    verify, ExecutionMode, HardwareTier, VerifyError, VerifyRequest,
+    verify_bytes, ExecutionMode, VerifyError,
 };
 use wasm_bindgen::prelude::*;
 
@@ -13,17 +13,14 @@ pub fn init() {
 
 #[wasm_bindgen]
 pub fn verify_image(image_bytes: &[u8], fast_mode: bool) -> Result<JsValue, JsValue> {
-    let request = VerifyRequest {
-        image_bytes: image_bytes.to_vec(),
-        execution_mode: if fast_mode {
-            ExecutionMode::Fast
-        } else {
-            ExecutionMode::Deep
-        },
-        hardware_tier: HardwareTier::CpuOnly,
+    // M6: call verify_bytes directly — no Vec<u8> copy needed.
+    let mode = if fast_mode {
+        ExecutionMode::Fast
+    } else {
+        ExecutionMode::Deep
     };
 
-    match verify(request) {
+    match verify_bytes(image_bytes, mode) {
         Ok(result) => serde_wasm_bindgen::to_value(&result)
             .map_err(|err| JsValue::from_str(&format!("serialization error: {err}"))),
         Err(err) => Err(to_js_error(err)),

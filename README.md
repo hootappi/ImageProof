@@ -2,7 +2,7 @@
 
 ImageProof is a client-side image authenticity verification engine. It processes untrusted image files entirely locally — in-browser via Rust/WASM or natively via CLI — extracting statistical, physical, and semantic signal features to classify images as Authentic, Suspicious (edited), or Synthetic (AI-generated), with confidence scores and structured explainability. No image data ever leaves the client.
 
-> **Status**: Early prototype (v0.1.0). A hardening sprint is planned — see `docs/EXECUTION_PLAN.md` for the full backlog. Known critical issues are documented in `docs/ARCHITECTURE.md` and `docs/CHANGELOG.md`.
+> **Status**: v0.1.0 — hardening sprint complete. All 29 backlog items (C1–C5, H1–H8, M1–M9, L1–L5, F1–F2) resolved. 105 automated tests, CI pipeline, Web Worker offload, runtime TOML config, and privacy-preserving feedback system are in place. See `docs/EXECUTION_PLAN.md` for the full backlog and `docs/CHANGELOG.md` for details.
 
 ## Quickstart
 
@@ -49,15 +49,25 @@ docs/                  Architecture, security, operations, execution plan
 
 ## Configuration
 
-There are **no runtime configuration options** at present. All thresholds and weights are compile-time constants in `crates/core/src/engine.rs`. There are no secrets, API keys, or environment variables.
+All 93 calibration parameters have sensible compile-time defaults in `crates/core/src/config.rs`. They can be overridden at runtime via an optional TOML file — no recompilation needed.
 
-| Parameter | File | Default |
-|-----------|------|---------|
-| `SYNTHETIC_MIN_THRESHOLD` | `engine.rs` | 0.66 |
-| `SYNTHETIC_MARGIN_THRESHOLD` | `engine.rs` | 0.12 |
-| `SUSPICIOUS_MIN_THRESHOLD` | `engine.rs` | 0.62 |
+```powershell
+# CLI with custom thresholds
+cargo run -p imageproof-cli -- stress <dataset> --config my_config.toml
+```
 
-Safe defaults: all processing is local, no network calls, no persistent state.
+See `config.example.toml` for all available fields with default values.
+
+| Key Parameter | Default | Description |
+|---------------|---------|-------------|
+| `synthetic_min_threshold` | 0.66 | Minimum synthetic likelihood for Synthetic classification |
+| `synthetic_margin_threshold` | 0.12 | Required margin of synthetic over edited likelihood |
+| `suspicious_min_threshold` | 0.62 | Minimum edited likelihood for Suspicious classification |
+| `indeterminate_ceiling` | 0.32 | Max likelihood for either axis to trigger Indeterminate |
+| `max_file_size_bytes` | 52428800 | Input file size limit (50 MB) |
+| `max_image_dimension` | 16384 | Max width or height after decode |
+
+Safe defaults: all processing is local, no network calls, no secrets, no API keys.
 
 ## Common Workflows
 
@@ -69,7 +79,7 @@ Safe defaults: all processing is local, no network calls, no persistent state.
 | Full web build (WASM + Vite) | `cd web && npm run check` |
 | Run dev server | `cd web && npm run dev -- --host 127.0.0.1 --port 4173` |
 | Lint (Rust) | `cargo clippy -- -D warnings` |
-| Run tests (Rust) | `cargo test` *(no tests yet — see hardening plan)* |
+| Run tests (Rust) | `cargo test` *(105 tests: 81 core + 24 CLI)* |
 | Stress test | `cargo run -p imageproof-cli -- stress <dataset_root>` |
 
 ## Stress Testing
@@ -104,8 +114,8 @@ Recursively scans `jpg/jpeg/png/webp` files and reports per-class accuracy, pert
 |---------|-------------|-----|
 | `npm run build:wasm` fails | `wasm-pack` not installed or `wasm32-unknown-unknown` target missing | `cargo install wasm-pack && rustup target add wasm32-unknown-unknown` |
 | WASM init fails in browser | Missing `web/pkg/` directory (not built) | Run `cd web && npm run build:wasm` |
-| Browser tab crashes on large image | No input dimension limits (known issue C5) | Use images ≤ 16 MP for now; fix tracked in hardening plan |
-| `RuntimeError: unreachable` in console | WASM panic with no panic hook (known issue H7) | Reproduce via CLI for stack trace; fix tracked in hardening plan |
+| Browser tab crashes on large image | Image exceeds 50 MB or 16384×16384 dimension limit | Engine rejects oversized inputs automatically; check browser console for error |
+| `RuntimeError: unreachable` in console | Unexpected Rust panic (edge case) | Panic hook installed — check browser console (F12) for full error message and stack trace |
 | Authentic photo classified as edited/synthetic | False positive from heuristic engine | Report image; check fusion thresholds; run stress test to measure rates |
 
 ## Documentation
@@ -116,7 +126,10 @@ Recursively scans `jpg/jpeg/png/webp` files and reports per-class accuracy, pert
 | `docs/SECURITY.md` | Threat model, attack surfaces, security controls, test checklist |
 | `docs/OPERATIONS.md` | Deployment model, observability gaps, failure modes, runbooks |
 | `docs/EXECUTION_PLAN.md` | Hardening backlog, milestones, sequencing, acceptance criteria, patch strategy |
-| `docs/CHANGELOG.md` | Release history and planned changes |
+| `docs/CHANGELOG.md` | Release history and change log |
+| `docs/FEEDBACK_SYSTEM.md` | Privacy model for the feedback learning system |
+| `CONTRIBUTING.md` | Versioning strategy, branch naming, commit conventions, PR requirements |
+| `config.example.toml` | Reference TOML with all 93 calibration fields (commented defaults) |
 
 ## VS Code Extensions
 

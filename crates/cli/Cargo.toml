@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 imageproof-core = { path = "../core" }
+toml.workspace = true

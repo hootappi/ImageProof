@@ -3,9 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- M9: Content-Security-Policy — enforce local-only execution, no external network -->
-    <meta http-equiv="Content-Security-Policy"
-          content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none';" />
+    <!-- M9+H8: Content-Security-Policy — enforce local-only execution, no external network.
+         worker-src 'self' allows Web Worker loading (H8).
+         connect-src 'self' allows WASM binary fetch from same origin inside Workers. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; worker-src 'self'; font-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none';"
+    />
     <title>ImageProof</title>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
@@ -31,6 +35,17 @@
         </div>
       </section>
 
+      <!-- F1: Analysis progress indicator -->
+      <section id="progressSection" class="card hidden">
+        <div class="progress-header">
+          <span id="progressLabel" class="progress-label">Analyzing…</span>
+          <span id="progressTimer" class="progress-timer"></span>
+        </div>
+        <div class="progress-track">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+      </section>
+
       <section class="card">
         <h2>Result</h2>
         <div class="result-grid">
@@ -40,8 +55,42 @@
           </div>
           <div class="result-item">
             <div class="result-label">Justification</div>
-            <div id="justificationValue" class="result-value">Load an image and verify to see a result.</div>
+            <div id="justificationValue" class="result-value">
+              Load an image and verify to see a result.
+            </div>
           </div>
+        </div>
+      </section>
+
+      <!-- F2: Post-analysis feedback -->
+      <section id="feedbackSection" class="card hidden">
+        <h2>Feedback</h2>
+        <p class="feedback-prompt">Was this result correct?</p>
+        <div class="feedback-row">
+          <button id="feedbackCorrect" class="feedback-btn feedback-correct" type="button">
+            Correct
+          </button>
+          <button id="feedbackIncorrect" class="feedback-btn feedback-incorrect" type="button">
+            Incorrect
+          </button>
+        </div>
+        <div id="correctionPanel" class="correction-panel hidden">
+          <label class="correction-label">What should it be?</label>
+          <select id="correctionSelect" class="correction-select">
+            <option value="Authentic">Real / Authentic</option>
+            <option value="Suspicious">Edited / Suspicious</option>
+            <option value="Synthetic">AI Generated / Synthetic</option>
+          </select>
+          <button id="submitCorrection" class="feedback-btn feedback-submit" type="button">
+            Submit
+          </button>
+        </div>
+        <div id="feedbackAck" class="feedback-ack hidden"></div>
+        <div class="diagnostic-row">
+          <label class="diagnostic-label">
+            <input id="diagnosticOptIn" type="checkbox" />
+            Share anonymous diagnostic data (no image data — only scores &amp; feedback)
+          </label>
         </div>
       </section>
     </main>

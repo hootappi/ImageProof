@@ -1,5 +1,6 @@
 use imageproof_core::{
-    verify, ExecutionMode, HardwareTier, VerificationClass, VerifyError, VerifyRequest,
+    verify_bytes_with_config, CalibrationConfig, ExecutionMode, VerificationClass,
+    VerifyError,
 };
 use std::collections::HashMap;
 use std::env;
@@ -80,9 +81,21 @@ impl GroupStats {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() >= 3 && args[1].eq_ignore_ascii_case("stress") {
-        let dataset_root = PathBuf::from(&args[2]);
-        if let Err(err) = run_stress_test(&dataset_root) {
+    // M3: Parse optional --config <path.toml> from any position in args.
+    let cfg = match parse_config_arg(&args) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+
+    // Filter out --config and its value for positional arg parsing.
+    let positional: Vec<&str> = filter_positional_args(&args);
+
+    if positional.len() >= 2 && positional[0].eq_ignore_ascii_case("stress") {
+        let dataset_root = PathBuf::from(positional[1]);
+        if let Err(err) = run_stress_test(&dataset_root, &cfg) {
             eprintln!("Stress test failed: {err}");
             std::process::exit(1);
         }
@@ -91,10 +104,50 @@ fn main() {
 
     println!("ImageProof launch successful.");
     println!("Run stress test with: cargo run -p imageproof-cli -- stress <dataset_root>");
+    println!("Options: --config <path.toml> to override calibration parameters.");
     println!("Expected dataset folders: authentic/, edited/, synthetic/");
 }
 
-fn run_stress_test(dataset_root: &Path) -> Result<(), String> {
+/// Parse --config <path.toml> and load a CalibrationConfig.
+/// Returns default config if --config is not specified.
+fn parse_config_arg(args: &[String]) -> Result<CalibrationConfig, String> {
+    for i in 0..args.len() {
+        if args[i] == "--config" {
+            let path = args
+                .get(i + 1)
+                .ok_or_else(|| "--config requires a file path argument".to_string())?;
+            let content = fs::read_to_string(path)
+                .map_err(|e| format!("Failed to read config file '{}': {e}", path))?;
+            let cfg: CalibrationConfig = toml::from_str(&content)
+                .map_err(|e| format!("Failed to parse config TOML '{}': {e}", path))?;
+            return Ok(cfg);
+        }
+    }
+    Ok(CalibrationConfig::default())
+}
+
+/// Return positional args (skip argv[0] and --config pairs).
+fn filter_positional_args(args: &[String]) -> Vec<&str> {
+    let mut result = Vec::new();
+    let mut skip_next = false;
+    for (i, arg) in args.iter().enumerate() {
+        if i == 0 {
+            continue; // skip binary name
+        }
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "--config" {
+            skip_next = true;
+            continue;
+        }
+        result.push(arg.as_str());
+    }
+    result
+}
+
+fn run_stress_test(dataset_root: &Path, cfg: &CalibrationConfig) -> Result<(), String> {
     if !dataset_root.is_dir() {
         return Err(format!("Dataset path is not a directory: {}", dataset_root.display()));
     }
@@ -128,13 +181,9 @@ fn run_stress_test(dataset_root: &Path) -> Result<(), String> {
             let bytes = fs::read(&image_path)
                 .map_err(|e| format!("Failed reading {}: {e}", image_path.display()))?;
 
-            let request = VerifyRequest {
-                image_bytes: bytes,
-                execution_mode: ExecutionMode::Deep,
-                hardware_tier: HardwareTier::CpuOnly,
-            };
-
-            match verify(request) {
+            // M6: use verify_bytes to avoid unnecessary Vec<u8> copy.
+            // M3: use config-aware variant for runtime threshold overrides.
+            match verify_bytes_with_config(&bytes, ExecutionMode::Deep, cfg) {
                 Ok(result) => {
                     let predicted = result.classification;
                     total_stats.record(expected, predicted);

@@ -1,6 +1,6 @@
 # Security — ImageProof
 
-> Last updated: 2026-02-24 (post-review hardening baseline)
+> Last updated: 2026-04-08 (all hardening findings resolved)
 
 ## Threat Model
 
@@ -33,9 +33,9 @@ ImageProof processes untrusted image files locally in-browser (WASM) or via nati
 
 | Attack | Current Status | Finding ID |
 |--------|---------------|------------|
-| Decompression bomb (huge dimensions in small file) | **VULNERABLE** — no dimension/size limits | C5 |
-| Malformed image header causing panic | **PARTIALLY MITIGATED** — decode errors caught, but panics in `image` crate are unbounded | H7 |
-| Format confusion (polyglot files) | **LOW RISK** — `with_guessed_format()` delegates to `image` crate heuristics | L5 |
+| Decompression bomb (huge dimensions in small file) | **RESOLVED** — 50 MB file size limit + 16384 max dimension enforced before/after decode | C5 |
+| Malformed image header causing panic | **MITIGATED** — decode errors caught; `console_error_panic_hook` installed for WASM panics | H7 |
+| Format confusion (polyglot files) | **MITIGATED** — explicit format allowlist (JPEG/PNG/WebP only); all others rejected with `UnsupportedFormat` | L5 |
 
 **Required control**: Enforce max file size (e.g., 50 MB) and max decoded dimensions (e.g., 16384×16384) before decode.
 
@@ -45,8 +45,8 @@ ImageProof processes untrusted image files locally in-browser (WASM) or via nati
 
 | Attack | Current Status | Finding ID |
 |--------|---------------|------------|
-| Symlink to sensitive files | **VULNERABLE** — no symlink detection | H6 |
-| Symlink escape from dataset directory | **VULNERABLE** — no path canonicalization | H6 |
+| Symlink to sensitive files | **RESOLVED** — `entry.file_type().is_symlink()` detects and skips symlinks with warning | H6 |
+| Symlink escape from dataset directory | **RESOLVED** — symlinks skipped before any read occurs | H6 |
 
 **Required control**: Check `entry.file_type().is_symlink()` and skip, or canonicalize paths and verify they remain within dataset root.
 
@@ -54,16 +54,16 @@ ImageProof processes untrusted image files locally in-browser (WASM) or via nati
 
 | Attack | Current Status | Finding ID |
 |--------|---------------|------------|
-| Panic → opaque crash | **VULNERABLE** — no `console_error_panic_hook` | H7 |
-| OOM via large allocation | **VULNERABLE** — browser may kill tab | C5 |
-| Main-thread blocking (DoS of UI) | **VULNERABLE** — synchronous execution | H8 |
+| Panic → opaque crash | **RESOLVED** — `console_error_panic_hook` installed; panics surface readable messages | H7 |
+| OOM via large allocation | **MITIGATED** — 50 MB file + 16384 dimension limits reject before decode | C5 |
+| Main-thread blocking (DoS of UI) | **RESOLVED** — Web Worker offload with main-thread fallback | H8 |
 
 ### 4. Web Frontend
 
 | Attack | Current Status | Finding ID |
 |--------|---------------|------------|
-| XSS via injected content | **LOW RISK** — uses `textContent` (not `innerHTML`), but no CSP | M9 |
-| Content injection post-deployment | **PARTIALLY VULNERABLE** — no Content-Security-Policy header | M9 |
+| XSS via injected content | **LOW RISK** — uses `textContent` (not `innerHTML`); CSP enforced | M9 |
+| Content injection post-deployment | **RESOLVED** — CSP meta tag + Vercel HTTP headers enforce `default-src 'none'`; no external scripts | M9 |
 
 ### 5. Developer Tooling
 
@@ -81,12 +81,14 @@ ImageProof processes untrusted image files locally in-browser (WASM) or via nati
 | Empty-input rejection | ✅ Implemented | `VerifyError::EmptyInput` on zero-length bytes |
 | Decode error handling | ✅ Implemented | `VerifyError::DecodeFailed` catches `image` crate errors |
 | DOM output via textContent | ✅ Implemented | No innerHTML usage in `main.js` |
-| Input dimension limits | ❌ Missing | See C5 |
-| Input file size limits | ❌ Missing | See C5 |
-| WASM panic hook | ❌ Missing | See H7 |
-| CSP headers | ❌ Missing | See M9 |
-| Symlink protection (CLI) | ❌ Missing | See H6 |
-| Automated security tests | ❌ Missing | See C4 |
+| Input dimension limits | ✅ Implemented | Max 16384×16384 after decode (C5) |
+| Input file size limits | ✅ Implemented | Max 50 MB before decode (C5) |
+| Format allowlist | ✅ Implemented | JPEG/PNG/WebP only; others rejected (L5) |
+| WASM panic hook | ✅ Implemented | `console_error_panic_hook` installed at WASM init (H7) |
+| CSP headers | ✅ Implemented | Meta tag + Vercel HTTP headers (M9) |
+| Symlink protection (CLI) | ✅ Implemented | Symlinks detected and skipped with warning (H6) |
+| Web Worker offload | ✅ Implemented | Verification runs off main thread with fallback (H8) |
+| Automated security tests | ✅ Implemented | 105 tests including boundary/edge-case/input-limit tests (C4) |
 
 ## Required Operational Practices
 
@@ -106,19 +108,22 @@ ImageProof processes untrusted image files locally in-browser (WASM) or via nati
 
 ### For CLI Usage
 
-1. **Do not run stress tests on untrusted dataset directories** until symlink protection (H6) is implemented.
-2. **Monitor memory usage** when processing unknown images — no dimension limits exist yet (C5).
+1. **Symlink protection is active** — `collect_recursive` skips symlinks with a warning to stderr.
+2. **Input limits enforced** — files >50 MB and images >16384 in either dimension are rejected automatically.
 
 ## Security Test Checklist
 
-Tests to implement as part of hardening (see EXECUTION_PLAN.md):
+Tests implemented as part of hardening (see EXECUTION_PLAN.md):
 
-- [ ] **Input limits**: Submit image with declared dimensions 65535×65535. Expect rejection, not OOM.
-- [ ] **Empty input**: Submit zero-byte payload. Expect `EmptyInput` error.
-- [ ] **Corrupted header**: Submit 1 KB of random bytes. Expect `DecodeFailed` error.
-- [ ] **Truncated image**: Submit first 50% of a valid JPEG. Expect `DecodeFailed` error.
-- [ ] **Minimum viable image**: Submit 1×1 PNG. Expect graceful result (not panic).
-- [ ] **3×3 image**: Submit tiny image. Expect all-zero metrics and Indeterminate or safe classification.
-- [ ] **Symlink in dataset** (CLI): Create symlink to file outside dataset root. Expect skip or rejection.
-- [ ] **WASM panic recovery**: Trigger edge case that would panic. Expect error message (not opaque crash).
-- [ ] **Concurrent verification** (future): If Web Worker is added, verify no shared-state corruption.
+- [x] **Input limits**: Submit image with declared dimensions 65535×65535. Rejected with `DimensionTooLarge`.
+- [x] **File size limit**: Submit >50 MB file. Rejected with `InputTooLarge`.
+- [x] **Empty input**: Submit zero-byte payload. Returns `EmptyInput` error.
+- [x] **Corrupted header**: Submit random bytes. Returns `DecodeFailed` error.
+- [x] **Minimum viable image**: Submit 1×1 PNG. Graceful result (no panic).
+- [x] **3×3 image**: Submit tiny image. Returns valid classification.
+- [x] **Symlink in dataset** (CLI): Symlinks detected and skipped with warning.
+- [x] **WASM panic recovery**: Panic hook installed; errors surface in browser console.
+- [x] **Web Worker offload**: Verification runs off main thread; fallback to sync if Worker fails.
+- [x] **Format restriction**: BMP/GIF/TIFF rejected with `UnsupportedFormat`.
+- [x] **Fusion weight sums**: All weight groups verified to sum ≤1.0 in automated tests.
+- [x] **NaN-free scoring**: Property test ensures no NaN in output on flat/tiny images.

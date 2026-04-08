@@ -57,6 +57,25 @@ Ensure-Command -Name "winget" -InstallHint "Install Windows App Installer from M
 
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 
+# L1: prompt for consent before installing anything automatically
+$needsInstall = @()
+if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) { $needsInstall += "Rust toolchain (via winget)" }
+$linkerExists = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC" -Filter link.exe -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -like "*\bin\Hostx64\x64\link.exe" } | Select-Object -First 1
+if (-not $linkerExists) { $needsInstall += "Visual Studio Build Tools C++ workload (via winget)" }
+$wasmPackPath = Join-Path $env:USERPROFILE ".cargo\bin\wasm-pack.exe"
+if (-not (Test-Path $wasmPackPath)) { $needsInstall += "wasm-pack (via cargo install)" }
+
+if ($needsInstall.Count -gt 0) {
+    Write-Host "`nThe following prerequisites need to be installed:" -ForegroundColor Yellow
+    $needsInstall | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
+    $answer = Read-Host "`nProceed with installation? [Y/n]"
+    if ($answer -and $answer -notmatch '^[Yy]') {
+        Write-Host "Aborted — install prerequisites manually and re-run." -ForegroundColor Red
+        exit 1
+    }
+}
+
 if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
     Write-Host "Installing Rust toolchain (one-time)..." -ForegroundColor Yellow
     winget install -e --id Rustlang.Rustup --accept-source-agreements --accept-package-agreements

@@ -8,9 +8,12 @@
     "check": "npm run build:wasm && npm run build",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "format": "prettier --write \"src/**/*.{js,css}\" index.html",
+    "format:check": "prettier --check \"src/**/*.{js,css}\" index.html"
   },
   "devDependencies": {
+    "prettier": "^3.5.3",
     "vite": "^7.1.5"
   }
 }
