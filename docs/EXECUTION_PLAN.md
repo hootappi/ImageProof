@@ -113,6 +113,41 @@ New features to implement after all planned fixes (M0–M3) are complete.
 
 **Exit criteria (F2)**: Feedback capture works with sharing disabled; local calibration stores non-image data; opt-in sharing transmits only derived features + feedback labels; privacy audit passes (no image data in any transmission path); full documentation of privacy model, data schema, local storage model, and transmission model.
 
+### M5 — Accuracy & Detection Quality (Next)
+
+Improve classification accuracy through calibration data, new forensic features, and model-based scoring.
+
+#### Phase 1: Calibration Dataset & Baseline (Est. 3–5 days)
+
+| Item | Deliverable |
+|------|------------|
+| D1: Assemble calibration dataset | ≥50 authentic (various cameras/lighting), ≥50 AI-generated (DALL-E, Midjourney, Stable Diffusion, Flux), ≥25 edited (Photoshop composites, face swaps, object removal) |
+| D2: Baseline accuracy measurement | Run stress test on D1 dataset, document per-class accuracy, FP/FN rates, and per-feature score distributions |
+| D3: Threshold calibration pass | Tune classification thresholds and fusion weights against D1 data to meet quality bar (≤1% authentic FP, ≤10% synthetic/edited miss) |
+
+**Exit criteria**: Stress test passes quality bar on D1 dataset. Feature score distributions documented per class for future reference.
+
+#### Phase 2: New Forensic Features (Est. 5–8 days)
+
+| Item | Deliverable |
+|------|------------|
+| D4: JPEG quantization table analysis | Extract DCT quantization tables from JPEG headers. Score deviation from known camera tables vs generic/standard tables used by AI generators. High-value discriminator for camera-vs-AI on JPEG inputs. |
+| D5: DCT coefficient distribution | Measure DCT coefficient histogram and score deviation from expected Laplacian distribution. Real camera JPEGs follow natural Laplacian shape; AI outputs do not. |
+| D6: Richer color features | Add chroma noise spatial frequency (cameras have chroma subsampling artifacts), color histogram smoothness (AI tends toward overly smooth distributions), and white balance consistency across regions. |
+| D7: GAN/Diffusion spectral fingerprint | Add targeted azimuthal FFT spectrum analysis for known periodic GAN/diffusion artifacts beyond the current generic spectral peak detection. |
+
+**Exit criteria**: Each new feature produces bounded [0,1] scores. Feature adds measurable accuracy improvement on D1 dataset (verified by stress test before/after).
+
+#### Phase 3: Model-Based Scoring (Est. 5–10 days)
+
+| Item | Deliverable |
+|------|------------|
+| D8: Logistic regression classifier | Train lightweight logistic regression on all extracted features (currently ~18) using D1 dataset labels. Replace hand-tuned linear fusion weights with learned coefficients. Model is <1KB, no download needed — coefficients embedded at compile time or in TOML config. |
+| D9: Cross-validation framework | k-fold cross-validation on D1 dataset to measure generalization. Report per-fold accuracy, AUC, and calibration curves. |
+| D10: Threshold optimization | Optimize classification thresholds via ROC analysis to hit target FP/FN rates with learned model. |
+
+**Exit criteria**: Learned model outperforms hand-tuned weights on held-out test fold. Model coefficients stored in `CalibrationConfig` for runtime override. Cross-validation results documented.
+
 ---
 
 ## Risks and Dependencies
@@ -124,6 +159,9 @@ New features to implement after all planned fixes (M0–M3) are complete.
 | Web Worker introduces timing/UX regressions | LOW | MEDIUM | Feature-flag the Worker path; fall back to main-thread if Worker init fails. |
 | No calibration dataset available yet | HIGH | CRITICAL | M1 cannot exit without ≥25 images per class. Assembling this dataset is a hard dependency. |
 | Architecture refactor (M3) breaks WASM build | MEDIUM | MEDIUM | Maintain `npm run check` in CI; run on every PR. |
+| Hand-tuned weights plateau on accuracy | HIGH | HIGH | M5 Phase 3 replaces hand-tuning with learned logistic regression coefficients. |
+| New features don't generalize beyond calibration set | MEDIUM | HIGH | M5 Phase 3 cross-validation measures generalization before shipping. |
+| JPEG-only features (D4, D5) inapplicable to PNG/WebP | MEDIUM | LOW | Gated on format detection (H2 pattern). Non-JPEG inputs get neutral scores. |
 
 **ASSUMPTION**: A calibration dataset with ≥25 authentic, ≥25 edited, and ≥25 synthetic images will be assembled before M1 exit.
 

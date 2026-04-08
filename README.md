@@ -2,7 +2,7 @@
 
 ImageProof is a client-side image authenticity verification engine. It processes untrusted image files entirely locally — in-browser via Rust/WASM or natively via CLI — extracting statistical, physical, and semantic signal features to classify images as Authentic, Suspicious (edited), or Synthetic (AI-generated), with confidence scores and structured explainability. No image data ever leaves the client.
 
-> **Status**: v0.1.0 — hardening sprint complete. All 29 backlog items (C1–C5, H1–H8, M1–M9, L1–L5, F1–F2) resolved. 105 automated tests, CI pipeline, Web Worker offload, runtime TOML config, and privacy-preserving feedback system are in place. See `docs/EXECUTION_PLAN.md` for the full backlog and `docs/CHANGELOG.md` for details.
+> **Status**: Alpha — live at [imageproof.vercel.app](https://imageproof.vercel.app). Hardening sprint complete (29 backlog items resolved). Color forensic layer added for AI image detection. 105 automated tests, CI pipeline, Web Worker offload, runtime TOML config, and privacy-preserving feedback system in place. **Next**: calibration dataset assembly, new forensic features (JPEG quantization, DCT distribution), and model-based scoring. See `docs/EXECUTION_PLAN.md` for the development roadmap.
 
 ## Quickstart
 
@@ -49,7 +49,7 @@ docs/                  Architecture, security, operations, execution plan
 
 ## Configuration
 
-All 93 calibration parameters have sensible compile-time defaults in `crates/core/src/config.rs`. They can be overridden at runtime via an optional TOML file — no recompilation needed.
+All 100 calibration parameters have sensible compile-time defaults in `crates/core/src/config.rs`. They can be overridden at runtime via an optional TOML file — no recompilation needed.
 
 ```powershell
 # CLI with custom thresholds
@@ -60,7 +60,7 @@ See `config.example.toml` for all available fields with default values.
 
 | Key Parameter | Default | Description |
 |---------------|---------|-------------|
-| `synthetic_min_threshold` | 0.66 | Minimum synthetic likelihood for Synthetic classification |
+| `synthetic_min_threshold` | 0.62 | Minimum synthetic likelihood for Synthetic classification |
 | `synthetic_margin_threshold` | 0.12 | Required margin of synthetic over edited likelihood |
 | `suspicious_min_threshold` | 0.62 | Minimum edited likelihood for Suspicious classification |
 | `indeterminate_ceiling` | 0.32 | Max likelihood for either axis to trigger Indeterminate |
@@ -118,18 +118,30 @@ Recursively scans `jpg/jpeg/png/webp` files and reports per-class accuracy, pert
 | `RuntimeError: unreachable` in console | Unexpected Rust panic (edge case) | Panic hook installed — check browser console (F12) for full error message and stack trace |
 | Authentic photo classified as edited/synthetic | False positive from heuristic engine | Report image; check fusion thresholds; run stress test to measure rates |
 
+## Development Roadmap
+
+The engine currently uses hand-tuned heuristic features with linear fusion weights. The next milestone (M5) focuses on accuracy improvement:
+
+| Phase | Focus | Status |
+|-------|-------|--------|
+| **Phase 1** | Calibration dataset (≥125 labeled images) + baseline accuracy measurement | Not started |
+| **Phase 2** | JPEG quantization tables, DCT coefficients, richer color features, GAN spectral fingerprint | Not started |
+| **Phase 3** | Logistic regression scoring, cross-validation, ROC-optimized thresholds | Not started |
+
+See `docs/EXECUTION_PLAN.md` § M5 and `docs/ARCHITECTURE.md` § Development Roadmap for details.
+
 ## Documentation
 
 | Document | Contents |
 |----------|---------|
-| `docs/ARCHITECTURE.md` | Components, data flow, trust boundaries, design decisions, known risks |
+| `docs/ARCHITECTURE.md` | Components, data flow, trust boundaries, design decisions, development roadmap |
 | `docs/SECURITY.md` | Threat model, attack surfaces, security controls, test checklist |
 | `docs/OPERATIONS.md` | Deployment model, observability gaps, failure modes, runbooks |
-| `docs/EXECUTION_PLAN.md` | Hardening backlog, milestones, sequencing, acceptance criteria, patch strategy |
+| `docs/EXECUTION_PLAN.md` | Hardening backlog, milestones M0–M5, sequencing, acceptance criteria |
 | `docs/CHANGELOG.md` | Release history and change log |
 | `docs/FEEDBACK_SYSTEM.md` | Privacy model for the feedback learning system |
 | `CONTRIBUTING.md` | Versioning strategy, branch naming, commit conventions, PR requirements |
-| `config.example.toml` | Reference TOML with all 93 calibration fields (commented defaults) |
+| `config.example.toml` | Reference TOML with all 100 calibration fields (commented defaults) |
 
 ## VS Code Extensions
 

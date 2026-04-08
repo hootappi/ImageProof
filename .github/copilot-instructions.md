@@ -361,7 +361,29 @@ Starting workspace setup for ImageProof application.
 - Deployed to Vercel: https://imageproof.vercel.app
 - WASM artifacts committed to git for zero-Rust Vercel builds.
 
-## Open Items (Pending)
-- Calibrate color forensic thresholds with real AI-generated image dataset (DALL-E, Midjourney, Stable Diffusion, Flux).
-- Stress test algorithm robustness across authentic/edited/synthetic samples and perturbation variants.
-- Plan user feedback collection and triage loop for calibration iterations.
+### Web Alpha Badge & Footer (2026-04-08)
+- Added "alpha" badge after headline in web UI.
+- Added development footer: "This is still under development. Commit XXXXX. Produced by hootappi".
+
+## Open Items (Pending) — Development Path M5
+
+### Phase 1: Calibration Dataset & Baseline
+- Assemble labeled dataset: ≥50 authentic, ≥50 AI-generated (DALL-E, Midjourney, Stable Diffusion, Flux), ≥25 edited.
+- Run stress test on dataset, document per-class accuracy and per-feature score distributions.
+- Tune classification thresholds and fusion weights against data to meet quality bar.
+
+### Phase 2: New Forensic Features
+- **D4: JPEG quantization table analysis** — extract DCT quantization tables, score deviation from camera vs generic tables.
+- **D5: DCT coefficient distribution** — measure deviation from expected Laplacian shape in JPEG DCT coefficients.
+- **D6: Richer color features** — chroma noise spatial frequency, color histogram smoothness, white balance consistency.
+- **D7: GAN/Diffusion spectral fingerprint** — targeted azimuthal FFT for known periodic artifacts.
+
+### Phase 3: Model-Based Scoring
+- **D8: Logistic regression** — train on all extracted features, replace hand-tuned weights with learned coefficients.
+- **D9: Cross-validation** — k-fold on calibration dataset, report AUC and calibration curves.
+- **D10: Threshold optimization** — ROC analysis for target FP/FN rates.
+
+### Other Pending
+- Structured logging (`tracing` crate) integration.
+- `Cargo.lock` audit policy.
+- Build-time commit hash injection for footer (currently static).

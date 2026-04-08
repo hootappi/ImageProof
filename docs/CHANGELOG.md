@@ -8,7 +8,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Done
 
 - **M1 (arch)**: Extracted per-layer analysis modules — `signal.rs`, `physical.rs`, `hybrid.rs`, `semantic.rs` — from monolithic `engine.rs`. Engine orchestrates layers via `pub(crate)` calls. Reduced `engine.rs` from ~2300 to ~1750 lines.
-- **M3 (config)**: Added `CalibrationConfig` struct (93 fields, `#[serde(default)]`) for runtime threshold overrides via TOML. New `verify_bytes_with_config()` threads config through all engine functions. CLI accepts `--config path.toml`. Created `config.example.toml` reference with all defaults commented out. Added 6 M3 integration tests (default equivalence, threshold shifting, reason codes, input limits, dimension limits, fast mode).
+- **M3 (config)**: Added `CalibrationConfig` struct (100 fields, `#[serde(default)]`) for runtime threshold overrides via TOML. New `verify_bytes_with_config()` threads config through all engine functions. CLI accepts `--config path.toml`. Created `config.example.toml` reference with all defaults commented out. Added 6 M3 integration tests (default equivalence, threshold shifting, reason codes, input limits, dimension limits, fast mode).
 - **M4 (dup iter)**: Added `compute_pixel_stats_and_residual` unified pass that computes noise, edge, block metrics and residual map in a single pixel iteration, eliminating duplicate traversal.
 - **M8 (fast)**: Fast mode now runs pixel-level statistics and returns a structured result with per-layer contributions, score mapping, and reason codes using shared `CalibrationConfig` plumbing.
 - **L4**: Removed unused `HardwareTier` enum from `model.rs` and `VerifyRequest`.
@@ -34,12 +34,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **M7**: Reason codes are now driven by per-layer contribution scores above `REASON_CODE_CONTRIBUTION_THRESHOLD` (0.15). Authentic and Suspicious branches emit only codes for layers that actually contributed. Added `derive_reason_codes` helper, `REASON_CODE_CONTRIBUTION_THRESHOLD` constant, and 7 new unit tests.
 - **H8**: Moved `verify_image` WASM call to a dedicated Web Worker (`web/src/worker.js`). Main thread posts image bytes via `postMessage` with `Transferable` buffer, Worker loads WASM independently and returns result. Falls back to synchronous main-thread execution if Worker initialization fails. Updated CSP: `connect-src 'self'`, `worker-src 'self'` (still blocks all external network requests).
 - **M5**: `compute_shifted_residual_corr` and `block_corr` now use `f64` accumulators for all sum/mean/numerator/denominator computations. Final correlation result is cast to `f32` at return. Prevents catastrophic cancellation and precision loss on large images (>10MP). All 98 existing tests pass unchanged.
+- **WASM Instant Fix**: Replaced `std::time::Instant` with `web_time::Instant` in `engine.rs` — `std::time::Instant::now()` traps on `wasm32-unknown-unknown`. Added `web-time = "1"` crate dependency.
+- **Color Forensic Layer**: Added color channel noise correlation and noise-brightness dependency features for AI-generated image detection. `decode_image` now returns `(GrayImage, RgbImage, is_jpeg)`. `CalibrationConfig` expanded from 93→100 fields.
+- **False-Positive Reduction — Color Boost Suppression**: Moved color boost inside physical suppression: `(synthetic_base + color_boost) * suppression`. Raised `COLOR_SYNTH_GATE` 0.25→0.40, lowered `COLOR_SYNTH_BOOST_SCALE` 1.0→0.45. Strengthened suppression weights. Raised `SYNTHETIC_MIN_THRESHOLD` to 0.62 and `SYNTHETIC_MARGIN_THRESHOLD` to 0.12.
+- **GitHub & Vercel Deployment**: Public repo at https://github.com/hootappi/ImageProof. Production at https://imageproof.vercel.app. WASM artifacts committed for zero-Rust Vercel builds.
+- **Web UI**: Added "alpha" badge in headline and development footer with commit hash and author attribution.
 
 ### Known Issues
 
-- Calibration thresholds are educated defaults — not yet validated against a real dataset.
+- Calibration thresholds are educated defaults — not yet validated against a real multi-class dataset.
+- Hand-tuned linear fusion weights plateau on accuracy; logistic regression planned (M5 Phase 3).
+- No JPEG-specific forensic features yet (quantization tables, DCT distributions).
 - Structured logging (`tracing` crate) not yet integrated.
 - No `Cargo.lock` audit policy enforced.
+
+### Development Path (M5)
+
+- **Phase 1**: Assemble calibration dataset (≥125 images), measure baseline accuracy, tune thresholds against data.
+- **Phase 2**: Add JPEG quantization table analysis, DCT coefficient distribution, richer color features, GAN/diffusion spectral fingerprint.
+- **Phase 3**: Train logistic regression on all features, cross-validation framework, ROC-optimized thresholds.
 
 ## [0.1.0] — 2026-02-24
 

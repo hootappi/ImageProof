@@ -1,6 +1,6 @@
 # Operations — ImageProof
 
-> Last updated: 2026-04-08 (all hardening findings resolved)
+> Last updated: 2026-04-08 (color forensics, Vercel deployment live, dev roadmap added)
 
 ## Deployment Model
 
@@ -10,10 +10,10 @@ ImageProof is a **local-only development tool** with two runtime paths:
 
 | Path | Environment | Entry Point | Status |
 |------|-------------|-------------|--------|
-| **Web (WASM)** | Browser | `web/` via Vite (dev) or Vercel (prod) | Dev server operational; Vercel deployment pending |
+| **Web (WASM)** | Browser | `web/` via Vite (dev) or Vercel (prod) | ✅ Live at https://imageproof.vercel.app |
 | **CLI (native)** | Windows/Linux terminal | `cargo run -p imageproof-cli` | Operational with stress-test harness |
 
-**No production deployment exists.** Vercel deployment is planned but deferred.
+**Production deployment**: https://imageproof.vercel.app (Vercel, static site hosting, zero-Rust build — WASM artifacts committed to git).
 
 ### Dev Environment Setup
 
@@ -37,11 +37,12 @@ npm run dev -- --host 127.0.0.1 --port 4173
 
 ### Future Production Path (Vercel)
 
-Ready for deployment:
+Deployed and operational:
 - Static site hosting (Vite `dist/` output + `pkg/` WASM artifacts)
 - No server-side component — all processing client-side
 - CSP headers configured in `vercel.json` with hardening headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`)
 - HTTPS enforced by platform
+- GitHub repo: https://github.com/hootappi/ImageProof
 
 ## Observability
 
@@ -141,7 +142,7 @@ See `config.example.toml` for the complete reference with all fields and default
 
 | Key Parameter | Location | Default |
 |---------------|----------|---------|
-| `synthetic_min_threshold` | `config.rs` | 0.66 |
+| `synthetic_min_threshold` | `config.rs` | 0.62 |
 | `synthetic_margin_threshold` | `config.rs` | 0.12 |
 | `suspicious_min_threshold` | `config.rs` | 0.62 |
 | `indeterminate_ceiling` | `config.rs` | 0.32 |

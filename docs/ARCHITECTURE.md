@@ -1,6 +1,6 @@
 # Architecture — ImageProof
 
-> Last updated: 2026-02-26 (post M3 — per-layer modules + runtime config)
+> Last updated: 2026-04-08 (post M4 — color forensics, WASM instant fix, Vercel deployment)
 
 ## Overview
 
@@ -16,7 +16,7 @@ ImageProof/
 ├── crates/
 │   ├── core/           # Domain types + verification engine
 │   │   └── src/
-│   │       ├── config.rs    # 93 named constants + CalibrationConfig struct
+│   │       ├── config.rs    # 100 named constants + CalibrationConfig struct
 │   │       ├── engine.rs    # Orchestration, decode, fusion, classification
 │   │       ├── lib.rs       # Public API surface
 │   │       ├── model.rs     # Domain types (VerificationResult, enums, etc.)
@@ -42,11 +42,11 @@ ImageProof/
 
 ### `imageproof-core` — Verification Engine
 
-**Files**: `crates/core/src/engine.rs` (~1800 lines), `config.rs` (~370 lines), `signal.rs`, `physical.rs`, `hybrid.rs`, `semantic.rs`, `model.rs`
+**Files**: `crates/core/src/engine.rs` (~1860 lines), `config.rs` (~540 lines), `signal.rs`, `physical.rs`, `hybrid.rs`, `semantic.rs`, `model.rs`
 
 Responsibilities:
-1. Decode image bytes to grayscale (`image` crate, auto-format detection; JPEG/PNG/WebP only).
-2. Extract signal metrics across four analysis layers (each in its own module).
+1. Decode image bytes to grayscale and RGB (`image` crate, auto-format detection; JPEG/PNG/WebP only).
+2. Extract signal metrics across four analysis layers (each in its own module), plus color forensics.
 3. Fuse per-layer scores into synthetic/edited/authentic likelihoods.
 4. Classify and emit structured `VerificationResult`.
 5. Accept optional `CalibrationConfig` for runtime threshold overrides.
@@ -59,15 +59,17 @@ Responsibilities:
 | **Physical** | prnu_plausibility_score, cross_region_consistency | Proxy for sensor-originated noise patterns |
 | **Hybrid** | hybrid_local_inconsistency, hybrid_seam_anomaly | Detect localized manipulation (splices, composites) |
 | **Semantic** | semantic_pattern_repetition, semantic_gradient_entropy, semantic_synthetic_cue | Detect generative-model artifacts |
+| **Color** | channel_noise_corr, noise_brightness_corr | Detect AI-generated images via inter-channel noise correlation and noise-brightness dependency |
 
 #### Fusion Model
 
 Scores are combined via weighted linear sums (clamped to [0,1]) with multiplicative suppression gates:
-- `synthetic_likelihood = clamp(synthetic_base × synthetic_suppression)`
+- `synthetic_likelihood = clamp((synthetic_base + color_boost) × synthetic_suppression)`
 - `edited_likelihood = clamp(edited_base × edited_suppression)`
+- Color boost is additive to synthetic_base but modulated by suppression — physical evidence (PRNU, consistency) dampens color cues to prevent false positives on real photos.
 - Classification thresholds: `SYNTHETIC_MIN_THRESHOLD`, `SYNTHETIC_MARGIN_THRESHOLD`, `SUSPICIOUS_MIN_THRESHOLD`, `INDETERMINATE_CEILING`, `INDETERMINATE_MIN_SPREAD`
 
-All weights, thresholds, and suppression parameters are defined as compile-time constants in `config.rs` and can be overridden at runtime via `CalibrationConfig` (TOML-loadable, `#[serde(default)]`).
+All weights, thresholds, and suppression parameters are defined as compile-time constants in `config.rs` (100 fields) and can be overridden at runtime via `CalibrationConfig` (TOML-loadable, `#[serde(default)]`).
 
 **RESOLVED (C1)**: Fusion weights normalized to sum = 1.00 per group (synthetic_base, edited_base, authentic_likelihood). Block-artifact NaN fixed for flat images.
 **RESOLVED (M3)**: Runtime config threading via `verify_bytes_with_config()`. CLI `--config path.toml` support.
@@ -176,10 +178,10 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | Heuristic-only (no ML model) | Zero model download, predictable latency, no GPU dependency | Lower accuracy ceiling than trained classifiers |
 | All-in-one engine.rs | ~~Rapid iteration during prototyping phase~~ | ~~Monolithic, hard to test layers independently (M1)~~ **RESOLVED**: Per-layer modules extracted (signal, physical, hybrid, semantic) |
 | Browser-first WASM target | Meets privacy requirement (no upload) | ~~Main-thread blocking (H8)~~ RESOLVED: Web Worker offload with fallback, limited compute budget |
-| Grayscale-only analysis | Halves memory, simplifies math | Loses color-channel forensic signals |
+| Grayscale-only analysis | ~~Halves memory, simplifies math~~ | ~~Loses color-channel forensic signals~~ **PARTIALLY RESOLVED**: Color forensic layer (channel noise correlation + noise-brightness dependency) added; decode now produces both GrayImage and RgbImage |
 | 64×64 FFT window cap | ~~Bounded compute cost~~ | ~~Misses fine spectral artifacts (H3)~~ **RESOLVED**: cap raised to 256, configurable via `CalibrationConfig.fft_window_cap` |
 | Fabricated latency values | ~~Placeholder for future instrumentation~~ | ~~Produces misleading diagnostics (C2)~~ RESOLVED: real `Instant::now()` timing |
-| Hard-coded thresholds | ~~Rapid iteration~~ | ~~No runtime tuning without recompilation~~ **RESOLVED (M3)**: 93-field `CalibrationConfig` loadable from TOML; CLI `--config` flag |
+| Hard-coded thresholds | ~~Rapid iteration~~ | ~~No runtime tuning without recompilation~~ **RESOLVED (M3)**: 100-field `CalibrationConfig` loadable from TOML; CLI `--config` flag |
 
 ## Known Risks — Summary
 
@@ -195,3 +197,36 @@ Vanilla JS Vite app. Drag-drop image upload → WASM call → formatted result d
 | M7 | Authentic always emits PhyPrnu001 | **RESOLVED** — reason codes driven by per-layer contribution scores above threshold (0.15) |
 
 All risk IDs reference the code review findings. See `docs/EXECUTION_PLAN.md` for remediation plan and sequencing.
+
+## Development Roadmap
+
+### Current Limitations
+
+The engine uses hand-tuned heuristic features with linear fusion weights. While the architecture is sound and all identified bugs are resolved, **classification accuracy is limited by**:
+
+1. **No calibration dataset** — thresholds are educated guesses, not data-driven.
+2. **Hand-tuned weights** — linear weighted sums are the worst way to combine 18 features.
+3. **Missing JPEG-specific features** — quantization table analysis and DCT coefficient distribution are two of the most discriminative camera-vs-AI signals and are not yet extracted.
+4. **Limited color analysis** — only 2 color metrics (channel noise correlation, noise-brightness dependency) from the Color layer; chroma subsampling, histogram smoothness, and white balance consistency are missing.
+
+### Planned Development Path (M5)
+
+| Phase | Focus | Key Deliverables |
+|-------|-------|-----------------|
+| **Phase 1** | Calibration dataset & baseline | ≥125 labeled images (50 authentic, 50 AI, 25 edited). Baseline accuracy measurement. Threshold tuning against data. |
+| **Phase 2** | New forensic features | JPEG quantization table analysis (D4). DCT coefficient distribution (D5). Richer color features (D6). GAN/Diffusion spectral fingerprint (D7). |
+| **Phase 3** | Model-based scoring | Logistic regression on all features (D8). Cross-validation framework (D9). ROC-optimized thresholds (D10). Coefficients stored in `CalibrationConfig`. |
+
+### Feature Pipeline Detail
+
+| Feature | Signal | Why It Helps |
+|---------|--------|-------------|
+| JPEG quantization tables | Camera-specific vs generic/standard tables | Real cameras embed distinctive DCT quantization tables; AI-saved JPEGs use generic tables |
+| DCT coefficient distribution | Laplacian shape deviation | Real camera JPEGs follow natural Laplacian DCT coefficient distributions; AI images don't |
+| Chroma noise spatial frequency | Bayer CFA subsampling artifacts | Real cameras have chroma subsampling noise artifacts from Bayer demosaicing; AI images don't |
+| Color histogram smoothness | Distribution regularity | AI generators produce overly smooth color distributions compared to camera sensor noise |
+| White balance consistency | Per-region color temperature | Real photos have consistent white balance; composites/AI may have spatial inconsistencies |
+| Azimuthal FFT fingerprint | Periodic GAN/diffusion artifacts | Known spectral signature pattern in GAN/diffusion outputs visible in azimuthal FFT spectrum |
+| Logistic regression scoring | Learned feature combination | Replaces hand-tuned weights with data-driven coefficients; <1KB model, no download needed |
+
+See `docs/EXECUTION_PLAN.md` § M5 for detailed deliverables, sequencing, and exit criteria.
