@@ -1,0 +1,16 @@
+{
+  "name": "imageproof-wasm-bindings",
+  "type": "module",
+  "version": "0.1.0",
+  "license": "UNLICENSED",
+  "files": [
+    "imageproof_wasm_bindings_bg.wasm",
+    "imageproof_wasm_bindings.js",
+    "imageproof_wasm_bindings.d.ts"
+  ],
+  "main": "imageproof_wasm_bindings.js",
+  "types": "imageproof_wasm_bindings.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
