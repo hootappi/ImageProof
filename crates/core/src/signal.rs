@@ -1,7 +1,8 @@
-//! Signal Intelligence Layer — pixel-level statistics and FFT spectral features.
+//! Signal Intelligence Layer — pixel-level statistics, FFT spectral features,
+//! and color forensic metrics for synthetic image detection.
 
 use crate::config::*;
-use image::GrayImage;
+use image::{GrayImage, RgbImage};
 use rustfft::{num_complex::Complex, FftPlanner};
 
 /// M4: Merged pixel-level statistics and residual map in a single interior-pixel pass.
@@ -278,6 +279,170 @@ pub(crate) fn compute_block_variance_cv(gray: &GrayImage) -> f32 {
 
     let std = var.sqrt();
     ((std / mean) / BLOCK_VAR_CV_NORMALIZATION).clamp(0.0, 1.0) as f32
+}
+
+// ─── Color Forensic Metrics ──────────────────────────────────────────────
+
+/// Compute color-channel noise correlation and noise-brightness dependency.
+///
+/// Returns `(channel_noise_corr, noise_brightness_corr)`:
+/// - `channel_noise_corr` in [0,1]: high = inter-channel noise is correlated (synthetic cue).
+///   Real cameras have independent per-channel sensor noise; AI generators produce
+///   correlated channel noise from a shared latent representation.
+/// - `noise_brightness_corr` in [0,1]: high = noise variance tracks brightness (authentic cue).
+///   Real camera noise follows shot-noise physics (variance ∝ signal level);
+///   AI-generated noise has no brightness dependency.
+///
+/// Returns `(0.0, 0.5)` (neutral) for grayscale images or images too small to analyze.
+pub(crate) fn compute_color_forensics(
+    rgb: &RgbImage,
+    gray: &GrayImage,
+) -> (f32, f32) {
+    let width = rgb.width();
+    let height = rgb.height();
+
+    if width < 3 || height < 3 {
+        return (0.0, 0.5);
+    }
+
+    // ── Grayscale detection ──
+    // If R≈G≈B for all pixels, the image is effectively grayscale and
+    // channel correlation is meaningless (would read 1.0 trivially).
+    let mut color_diff_sum = 0.0f64;
+    let mut color_diff_count = 0u64;
+    let step = ((width * height) / 2000).max(1);
+    let mut idx = 0u32;
+    'outer: for y in 0..height {
+        for x in 0..width {
+            if idx.is_multiple_of(step) {
+                let [r, g, b] = rgb.get_pixel(x, y).0;
+                color_diff_sum += (r as f64 - g as f64).abs()
+                    + (r as f64 - b as f64).abs()
+                    + (g as f64 - b as f64).abs();
+                color_diff_count += 1;
+                if color_diff_count >= 2000 {
+                    break 'outer;
+                }
+            }
+            idx += 1;
+        }
+    }
+    let is_grayscale = color_diff_count == 0
+        || color_diff_sum / (color_diff_count as f64) < GRAYSCALE_MEAN_DIFF_THRESHOLD;
+
+    if is_grayscale {
+        return (0.0, 0.5);
+    }
+
+    // ── Channel noise correlation ──
+    // Compute per-channel 4-neighbor residuals and Pearson correlation.
+    let cap = ((width - 2) as usize) * ((height - 2) as usize);
+    let mut r_res = Vec::with_capacity(cap);
+    let mut g_res = Vec::with_capacity(cap);
+    let mut b_res = Vec::with_capacity(cap);
+
+    // Also accumulate noise-brightness bins during the same pass.
+    let n_bins = NOISE_BRIGHTNESS_BINS;
+    let mut bin_noise_sum = vec![0.0f64; n_bins];
+    let mut bin_noise_sq = vec![0.0f64; n_bins];
+    let mut bin_count = vec![0u64; n_bins];
+
+    for y in 1..(height - 1) {
+        for x in 1..(width - 1) {
+            let [rc, gc, bc] = rgb.get_pixel(x, y).0;
+            let [rl, gl, bl] = rgb.get_pixel(x - 1, y).0;
+            let [rr, gr, br] = rgb.get_pixel(x + 1, y).0;
+            let [ru, gu, bu] = rgb.get_pixel(x, y - 1).0;
+            let [rd, gd, bd] = rgb.get_pixel(x, y + 1).0;
+
+            let r_mean = (rl as f64 + rr as f64 + ru as f64 + rd as f64) * 0.25;
+            let g_mean = (gl as f64 + gr as f64 + gu as f64 + gd as f64) * 0.25;
+            let b_mean = (bl as f64 + br as f64 + bu as f64 + bd as f64) * 0.25;
+
+            r_res.push(rc as f64 - r_mean);
+            g_res.push(gc as f64 - g_mean);
+            b_res.push(bc as f64 - b_mean);
+
+            // Noise-brightness binning (using grayscale luminance)
+            let luma = gray.get_pixel(x, y)[0];
+            let bin = ((luma as usize) * n_bins / 256).min(n_bins - 1);
+            let gray_residual = {
+                let cl = gray.get_pixel(x - 1, y)[0] as f64;
+                let cr = gray.get_pixel(x + 1, y)[0] as f64;
+                let cu = gray.get_pixel(x, y - 1)[0] as f64;
+                let cd = gray.get_pixel(x, y + 1)[0] as f64;
+                luma as f64 - (cl + cr + cu + cd) * 0.25
+            };
+            bin_noise_sum[bin] += gray_residual.abs();
+            bin_noise_sq[bin] += gray_residual * gray_residual;
+            bin_count[bin] += 1;
+        }
+    }
+
+    // ── Pearson correlations between channel residuals ──
+    let rg = pearson_corr_f64(&r_res, &g_res);
+    let rb = pearson_corr_f64(&r_res, &b_res);
+    let gb = pearson_corr_f64(&g_res, &b_res);
+
+    // Average and clamp to [0,1] — negative correlations map to 0.
+    let channel_noise_corr = ((rg + rb + gb) / 3.0).clamp(0.0, 1.0) as f32;
+
+    // ── Noise-brightness correlation ──
+    // Collect bins with enough samples, compute variance per bin,
+    // then Pearson correlation between bin brightness and noise variance.
+    let mut valid_xs = Vec::new();
+    let mut valid_ys = Vec::new();
+    for i in 0..n_bins {
+        if bin_count[i] >= NOISE_BRIGHTNESS_MIN_SAMPLES {
+            let n = bin_count[i] as f64;
+            let mean_abs = bin_noise_sum[i] / n;
+            let mean_sq = bin_noise_sq[i] / n;
+            let variance = (mean_sq - mean_abs * mean_abs).max(0.0);
+            valid_xs.push(i as f64);
+            valid_ys.push(variance);
+        }
+    }
+
+    let noise_brightness_corr = if valid_xs.len() >= 3 {
+        pearson_corr_f64(&valid_xs, &valid_ys).clamp(0.0, 1.0) as f32
+    } else {
+        0.5 // neutral — insufficient brightness range
+    };
+
+    (channel_noise_corr, noise_brightness_corr)
+}
+
+/// Pearson correlation coefficient for two equal-length f64 slices.
+/// Returns 0.0 if inputs are empty, have different lengths, or if either
+/// series has zero variance (flat).
+fn pearson_corr_f64(xs: &[f64], ys: &[f64]) -> f64 {
+    let n = xs.len();
+    if n == 0 || n != ys.len() {
+        return 0.0;
+    }
+    let nf = n as f64;
+
+    let mean_x = xs.iter().sum::<f64>() / nf;
+    let mean_y = ys.iter().sum::<f64>() / nf;
+
+    let mut cov = 0.0f64;
+    let mut var_x = 0.0f64;
+    let mut var_y = 0.0f64;
+
+    for i in 0..n {
+        let dx = xs[i] - mean_x;
+        let dy = ys[i] - mean_y;
+        cov += dx * dy;
+        var_x += dx * dx;
+        var_y += dy * dy;
+    }
+
+    let denom = (var_x * var_y).sqrt();
+    if denom < 1e-15 {
+        return 0.0;
+    }
+
+    cov / denom
 }
 
 /// Returns `(interior_residual, interior_width, interior_height)`.

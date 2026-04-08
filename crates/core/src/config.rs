@@ -14,10 +14,10 @@ use serde::Deserialize;
 // ─── Classification thresholds ────────────────────────────────────────────
 
 /// Minimum synthetic likelihood to classify as Synthetic.
-pub const SYNTHETIC_MIN_THRESHOLD: f32 = 0.66;
+pub const SYNTHETIC_MIN_THRESHOLD: f32 = 0.58;
 
 /// Minimum margin synthetic must exceed edited likelihood by for Synthetic.
-pub const SYNTHETIC_MARGIN_THRESHOLD: f32 = 0.12;
+pub const SYNTHETIC_MARGIN_THRESHOLD: f32 = 0.10;
 
 /// Minimum edited likelihood to classify as Suspicious.
 pub const SUSPICIOUS_MIN_THRESHOLD: f32 = 0.62;
@@ -86,10 +86,10 @@ pub const SYN_W_SEMANTIC_CUE: f32 = 0.09;
 
 // ─── Deep-mode fusion weights: synthetic suppression ─────────────────────
 
-pub const SYN_SUPP_PRNU: f32 = 0.22;
-pub const SYN_SUPP_CONSISTENCY: f32 = 0.14;
-pub const SYN_SUPP_HF_RATIO: f32 = 0.08;
-pub const SYN_SUPP_FLOOR: f32 = 0.45;
+pub const SYN_SUPP_PRNU: f32 = 0.16;
+pub const SYN_SUPP_CONSISTENCY: f32 = 0.10;
+pub const SYN_SUPP_HF_RATIO: f32 = 0.06;
+pub const SYN_SUPP_FLOOR: f32 = 0.55;
 
 // ─── Deep-mode fusion weights: edited base (sum = 1.00, C1) ─────────────
 
@@ -222,6 +222,29 @@ pub const SEMANTIC_REP_SCALE: f32 = 0.25;
 /// Semantic synthetic cue fusion weights.
 pub const SEMANTIC_CUE_W_REPETITION: f32 = 0.42;
 pub const SEMANTIC_CUE_W_ENTROPY_INV: f32 = 0.30;
+
+// ─── Color forensic parameters ───────────────────────────────────────────
+
+/// Number of brightness bins for noise-brightness dependency analysis.
+pub const NOISE_BRIGHTNESS_BINS: usize = 8;
+
+/// Minimum pixel count per brightness bin to include in correlation.
+pub const NOISE_BRIGHTNESS_MIN_SAMPLES: u64 = 100;
+
+/// Color boost: weight for inter-channel noise correlation.
+pub const COLOR_SYNTH_W_CHANNEL_CORR: f32 = 0.55;
+
+/// Color boost: weight for inverted noise-brightness correlation.
+pub const COLOR_SYNTH_W_NOISE_BRIGHT_INV: f32 = 0.45;
+
+/// Color boost: minimum color evidence to activate additive boost.
+pub const COLOR_SYNTH_GATE: f32 = 0.25;
+
+/// Color boost: scale factor for evidence above gate.
+pub const COLOR_SYNTH_BOOST_SCALE: f32 = 1.0;
+
+/// Mean per-pixel |R-G|+|R-B|+|G-B| below which image is treated as grayscale.
+pub const GRAYSCALE_MEAN_DIFF_THRESHOLD: f64 = 1.5;
 
 // ─── Fast-mode fusion weights ────────────────────────────────────────────
 
@@ -375,6 +398,15 @@ pub struct CalibrationConfig {
     pub semantic_cue_w_repetition: f32,
     pub semantic_cue_w_entropy_inv: f32,
 
+    // ── Color forensic parameters ────────────────────────────────────
+    pub noise_brightness_bins: usize,
+    pub noise_brightness_min_samples: u64,
+    pub color_synth_w_channel_corr: f32,
+    pub color_synth_w_noise_bright_inv: f32,
+    pub color_synth_gate: f32,
+    pub color_synth_boost_scale: f32,
+    pub grayscale_mean_diff_threshold: f64,
+
     // ── Fast-mode fusion weights ─────────────────────────────────────
     pub fast_syn_w_block_art: f32,
     pub fast_syn_w_noise_inv: f32,
@@ -482,6 +514,13 @@ impl Default for CalibrationConfig {
             semantic_rep_scale: SEMANTIC_REP_SCALE,
             semantic_cue_w_repetition: SEMANTIC_CUE_W_REPETITION,
             semantic_cue_w_entropy_inv: SEMANTIC_CUE_W_ENTROPY_INV,
+            noise_brightness_bins: NOISE_BRIGHTNESS_BINS,
+            noise_brightness_min_samples: NOISE_BRIGHTNESS_MIN_SAMPLES,
+            color_synth_w_channel_corr: COLOR_SYNTH_W_CHANNEL_CORR,
+            color_synth_w_noise_bright_inv: COLOR_SYNTH_W_NOISE_BRIGHT_INV,
+            color_synth_gate: COLOR_SYNTH_GATE,
+            color_synth_boost_scale: COLOR_SYNTH_BOOST_SCALE,
+            grayscale_mean_diff_threshold: GRAYSCALE_MEAN_DIFF_THRESHOLD,
             fast_syn_w_block_art: FAST_SYN_W_BLOCK_ART,
             fast_syn_w_noise_inv: FAST_SYN_W_NOISE_INV,
             fast_syn_w_edge_inv: FAST_SYN_W_EDGE_INV,

@@ -6,8 +6,8 @@ use crate::model::{
 };
 use crate::physical::compute_prnu_proxy_metrics;
 use crate::semantic::compute_semantic_metrics;
-use crate::signal::{compute_fft_signal_features, compute_pixel_statistics, compute_pixel_stats_and_residual};
-use image::{GrayImage, ImageFormat, ImageReader};
+use crate::signal::{compute_color_forensics, compute_fft_signal_features, compute_pixel_statistics, compute_pixel_stats_and_residual};
+use image::{GrayImage, ImageFormat, ImageReader, RgbImage};
 use std::io::Cursor;
 use web_time::Instant;
 
@@ -44,6 +44,8 @@ struct SignalMetrics {
     semantic_pattern_repetition: f32,
     semantic_gradient_entropy: f32,
     semantic_synthetic_cue: f32,
+    channel_noise_corr: f32,
+    noise_brightness_corr: f32,
 }
 
 pub fn verify(request: VerifyRequest) -> Result<VerificationResult, VerifyError> {
@@ -88,8 +90,8 @@ pub fn verify_bytes_with_config(
 
 /// L5: Decode and validate image bytes — shared by both fast and deep paths.
 /// Rejects unsupported formats (only JPEG, PNG, WebP accepted) and enforces
-/// dimension limits. Returns `(gray_image, is_jpeg)`.
-fn decode_image(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<(GrayImage, bool), VerifyError> {
+/// dimension limits. Returns `(gray_image, rgb_image, is_jpeg)`.
+fn decode_image(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<(GrayImage, RgbImage, bool), VerifyError> {
     let reader = ImageReader::new(Cursor::new(image_bytes))
         .with_guessed_format()
         .map_err(|_| VerifyError::DecodeFailed)?;
@@ -114,14 +116,14 @@ fn decode_image(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<(GrayImag
         });
     }
 
-    Ok((image.to_luma8(), is_jpeg))
+    Ok((image.to_luma8(), image.to_rgb8(), is_jpeg))
 }
 
 /// M8: Lightweight fast-mode analysis — pixel statistics only.
 /// Skips FFT, PRNU, hybrid, and semantic layers for lower latency
 /// at the cost of reduced accuracy. Suitable for quick triage.
 fn verify_fast(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<VerificationResult, VerifyError> {
-    let (gray, is_jpeg) = decode_image(image_bytes, cfg)?;
+    let (gray, _rgb, is_jpeg) = decode_image(image_bytes, cfg)?;
 
     let t_signal = Instant::now();
     let (noise_score, edge_score, block_artifact_score, block_variance_cv) =
@@ -210,10 +212,10 @@ fn verify_fast(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<Verificati
 }
 
 fn verify_deep_heuristic(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<VerificationResult, VerifyError> {
-    let (gray, is_jpeg) = decode_image(image_bytes, cfg)?;
+    let (gray, rgb, is_jpeg) = decode_image(image_bytes, cfg)?;
 
     // C2: Real per-layer timing via compute_signal_metrics_timed.
-    let timed = compute_signal_metrics_timed(&gray, is_jpeg);
+    let timed = compute_signal_metrics_timed(&gray, &rgb, is_jpeg);
     let metrics = timed.metrics;
 
     // Synthetic-base fusion weights — normalized to sum = 1.00 (C1 fix).
@@ -234,7 +236,21 @@ fn verify_deep_heuristic(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<
         - cfg.syn_supp_consistency * metrics.cross_region_consistency
         - cfg.syn_supp_hf_ratio * metrics.high_freq_ratio_score)
         .clamp(cfg.syn_supp_floor, 1.0);
-    let synthetic_likelihood = (synthetic_base * synthetic_suppression).clamp(0.0, 1.0);
+    let synthetic_likelihood = {
+        // Color forensics boost: additive pathway that bypasses suppression.
+        // Real cameras have independent per-channel noise (low channel_noise_corr)
+        // and shot-noise brightness dependency (high noise_brightness_corr).
+        // AI images have correlated channels and flat noise-brightness response.
+        let color_evidence = (cfg.color_synth_w_channel_corr * metrics.channel_noise_corr
+            + cfg.color_synth_w_noise_bright_inv * (1.0 - metrics.noise_brightness_corr).max(0.0))
+            .clamp(0.0, 1.0);
+        let color_boost = if color_evidence > cfg.color_synth_gate {
+            (color_evidence - cfg.color_synth_gate) * cfg.color_synth_boost_scale
+        } else {
+            0.0
+        };
+        (synthetic_base * synthetic_suppression + color_boost).clamp(0.0, 1.0)
+    };
 
     // Edited-base fusion weights — normalized to sum = 1.00 (C1 fix).
     let edited_base = (cfg.edt_w_block_var_cv * metrics.block_variance_cv
@@ -265,22 +281,21 @@ fn verify_deep_heuristic(image_bytes: &[u8], cfg: &CalibrationConfig) -> Result<
         if synthetic_likelihood > cfg.synthetic_min_threshold
             && synthetic_likelihood > edited_likelihood + cfg.synthetic_margin_threshold
         {
-            // Synthetic: strong evidence — emit all layer codes unconditionally.
+            // Synthetic: strong evidence — use derive_reason_codes for consistency.
+            let (mut reason_codes, mut layer_reasons) =
+                derive_reason_codes(&layer_contributions, cfg);
+
+            // Synthetic must have at least one reason code — fallback to SemClass001.
+            if reason_codes.is_empty() {
+                reason_codes.push(ReasonCode::SemClass001);
+                layer_reasons.push(("semantic".to_string(), vec![ReasonCode::SemClass001]));
+            }
+
             (
                 VerificationClass::Synthetic,
                 (1.0 - cfg.synthetic_score_scale * synthetic_likelihood).clamp(cfg.synthetic_score_min, cfg.synthetic_score_max),
-                vec![
-                    ReasonCode::SemClass001,
-                    ReasonCode::SigFreq001,
-                    ReasonCode::PhyPrnu001,
-                    ReasonCode::HybEla001,
-                ],
-                vec![
-                    ("semantic".to_string(), vec![ReasonCode::SemClass001]),
-                    ("signal".to_string(), vec![ReasonCode::SigFreq001]),
-                    ("physical".to_string(), vec![ReasonCode::PhyPrnu001]),
-                    ("hybrid".to_string(), vec![ReasonCode::HybEla001]),
-                ],
+                reason_codes,
+                layer_reasons,
             )
         } else if edited_likelihood > cfg.suspicious_min_threshold {
             // Suspicious: emit codes only for layers that actually contributed (M7).
@@ -377,7 +392,7 @@ struct TimedMetrics {
 }
 
 /// Compute all signal metrics with real per-layer wall-clock timing.
-fn compute_signal_metrics_timed(gray: &GrayImage, is_jpeg: bool) -> TimedMetrics {
+fn compute_signal_metrics_timed(gray: &GrayImage, rgb: &RgbImage, is_jpeg: bool) -> TimedMetrics {
     let width = gray.width();
     let height = gray.height();
 
@@ -397,6 +412,8 @@ fn compute_signal_metrics_timed(gray: &GrayImage, is_jpeg: bool) -> TimedMetrics
                 semantic_pattern_repetition: 0.0,
                 semantic_gradient_entropy: 0.0,
                 semantic_synthetic_cue: 0.0,
+                channel_noise_corr: 0.0,
+                noise_brightness_corr: 0.5,
             },
             signal_ms: 0,
             physical_ms: 0,
@@ -411,6 +428,8 @@ fn compute_signal_metrics_timed(gray: &GrayImage, is_jpeg: bool) -> TimedMetrics
         compute_pixel_stats_and_residual(gray, is_jpeg);
     let (spectral_peak_score, high_freq_ratio_score) =
         compute_fft_signal_features(&residual_map, res_w, res_h);
+    let (channel_noise_corr, noise_brightness_corr) =
+        compute_color_forensics(rgb, gray);
     let signal_ms = t_signal.elapsed().as_millis() as u32;
 
     // --- Physical layer: PRNU proxy ---
@@ -446,6 +465,8 @@ fn compute_signal_metrics_timed(gray: &GrayImage, is_jpeg: bool) -> TimedMetrics
             semantic_pattern_repetition,
             semantic_gradient_entropy,
             semantic_synthetic_cue,
+            channel_noise_corr,
+            noise_brightness_corr,
         },
         signal_ms,
         physical_ms,
@@ -479,6 +500,8 @@ fn compute_signal_metrics_for(gray: &GrayImage, is_jpeg: bool) -> SignalMetrics 
             semantic_pattern_repetition: 0.0,
             semantic_gradient_entropy: 0.0,
             semantic_synthetic_cue: 0.0,
+            channel_noise_corr: 0.0,
+            noise_brightness_corr: 0.5,
         };
     }
 
@@ -507,6 +530,10 @@ fn compute_signal_metrics_for(gray: &GrayImage, is_jpeg: bool) -> SignalMetrics 
         semantic_pattern_repetition,
         semantic_gradient_entropy,
         semantic_synthetic_cue,
+        // Color forensics: neutral defaults for grayscale test images.
+        // Channel corr 0.0 = camera-like (no boost); brightness corr 0.5 = neutral.
+        channel_noise_corr: 0.0,
+        noise_brightness_corr: 0.5,
     }
 }
 
@@ -895,6 +922,8 @@ mod tests {
         assert_eq!(metrics.prnu_plausibility_score, 0.0);
         assert_eq!(metrics.hybrid_local_inconsistency, 0.0);
         assert_eq!(metrics.semantic_pattern_repetition, 0.0);
+        assert_eq!(metrics.channel_noise_corr, 0.0);
+        assert_eq!(metrics.noise_brightness_corr, 0.5);
     }
 
     #[test]
@@ -935,6 +964,8 @@ mod tests {
             metrics.semantic_pattern_repetition,
             metrics.semantic_gradient_entropy,
             metrics.semantic_synthetic_cue,
+            metrics.channel_noise_corr,
+            metrics.noise_brightness_corr,
         ];
         for (i, val) in fields.iter().enumerate() {
             assert!(
@@ -1178,6 +1209,8 @@ mod tests {
             semantic_pattern_repetition: 0.0,
             semantic_gradient_entropy: 0.0,
             semantic_synthetic_cue: 0.0,
+            channel_noise_corr: 0.0,
+            noise_brightness_corr: 0.5,
         };
         let cfg = CalibrationConfig::default();
         let lc = compute_layer_contributions(&metrics, &cfg);
@@ -1203,6 +1236,8 @@ mod tests {
             semantic_pattern_repetition: 1.0,
             semantic_gradient_entropy: 1.0,
             semantic_synthetic_cue: 1.0,
+            channel_noise_corr: 1.0,
+            noise_brightness_corr: 1.0,
         };
         let cfg = CalibrationConfig::default();
         let lc = compute_layer_contributions(&metrics, &cfg);
