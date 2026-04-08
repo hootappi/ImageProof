@@ -341,12 +341,19 @@ Starting workspace setup for ImageProof application.
 - Added two new discriminative features for AI-generated image detection:
   - **Color channel noise correlation**: exploits independent per-channel sensor noise in real cameras vs correlated noise in AI generators (shared latent space).
   - **Noise-brightness dependency**: real cameras follow shot-noise physics (variance ∝ brightness); AI noise has no brightness dependency.
-- Features feed an additive "color boost" pathway that bypasses existing suppression mechanism.
+- Features feed an additive "color boost" pathway modulated by physical suppression.
 - Grayscale images detected and gated (channel_noise_corr=0.0, noise_brightness_corr=0.5 neutral).
-- Threshold adjustments: `SYNTHETIC_MIN_THRESHOLD` 0.66→0.58, `SYNTHETIC_MARGIN_THRESHOLD` 0.12→0.10, suppression floor 0.45→0.55.
 - Synthetic classification branch now uses `derive_reason_codes()` for consistency with other branches.
 - `CalibrationConfig` expanded from 93→100 fields (7 new color forensic parameters).
 - `decode_image` now returns `(GrayImage, RgbImage, is_jpeg)` to support color analysis.
+- 105 tests pass, clippy clean.
+
+### False-Positive Reduction — Color Boost Suppression (2026-04-08)
+- Moved color boost inside physical suppression: `(synthetic_base + color_boost) * suppression` instead of `synthetic_base * suppression + color_boost`.
+- Previous architecture let color cues bypass PRNU/consistency evidence, causing real camera photos to classify as AI-generated.
+- Raised `COLOR_SYNTH_GATE` 0.25→0.40, lowered `COLOR_SYNTH_BOOST_SCALE` 1.0→0.45.
+- Strengthened suppression weights: `SYN_SUPP_PRNU` 0.16→0.25, `SYN_SUPP_CONSISTENCY` 0.10→0.18, `SYN_SUPP_HF_RATIO` 0.06→0.10, `SYN_SUPP_FLOOR` 0.55→0.40.
+- Raised `SYNTHETIC_MIN_THRESHOLD` 0.58→0.62 and `SYNTHETIC_MARGIN_THRESHOLD` 0.10→0.12.
 - 105 tests pass, clippy clean.
 
 ### GitHub & Vercel Deployment (2026-04-08)

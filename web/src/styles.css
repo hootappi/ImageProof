@@ -30,6 +30,24 @@ h1 {
   font-weight: 700;
 }
 
+.alpha-badge {
+  font-size: 0.55em;
+  font-weight: 500;
+  color: #f5c542;
+  vertical-align: super;
+  letter-spacing: 0.04em;
+}
+
+.site-footer {
+  max-width: 760px;
+  margin: 2rem auto 1rem;
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.78rem;
+  color: #7a8da6;
+  border-top: 1px solid #1e2d45;
+}
+
 h2 {
   margin: 0 0 0.9rem;
   font-size: 1.05rem;
