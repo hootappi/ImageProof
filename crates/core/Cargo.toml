@@ -9,3 +9,4 @@ serde.workspace = true
 thiserror.workspace = true
 image.workspace = true
 rustfft.workspace = true
+web-time.workspace = true

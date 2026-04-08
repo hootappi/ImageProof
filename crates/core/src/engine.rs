@@ -9,7 +9,7 @@ use crate::semantic::compute_semantic_metrics;
 use crate::signal::{compute_fft_signal_features, compute_pixel_statistics, compute_pixel_stats_and_residual};
 use image::{GrayImage, ImageFormat, ImageReader};
 use std::io::Cursor;
-use std::time::Instant;
+use web_time::Instant;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VerifyError {

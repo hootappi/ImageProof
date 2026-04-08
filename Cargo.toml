@@ -17,4 +17,5 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 rustfft = "6"
+web-time = "1"
 toml = "0.8"
